@@ -42,6 +42,29 @@ CREATE INDEX IF NOT EXISTS idx_vehicles_vin ON public.vehicles(vin);
 CREATE INDEX IF NOT EXISTS idx_vehicles_make ON public.vehicles(make);
 CREATE INDEX IF NOT EXISTS idx_vehicles_rejected ON public.vehicles(is_rejected);
 
+-- Relax service_location: high-end / unclassified rows from CSV imports
+-- may legitimately have no assigned shop. Allow NULL but still enforce
+-- gmc / honda for any non-null value.
+ALTER TABLE public.vehicles
+  ALTER COLUMN service_location DROP NOT NULL;
+
+DO $$
+DECLARE
+  cn TEXT;
+BEGIN
+  FOR cn IN
+    SELECT conname FROM pg_constraint
+    WHERE conrelid = 'public.vehicles'::regclass
+      AND pg_get_constraintdef(oid) LIKE '%service_location%'
+  LOOP
+    EXECUTE format('ALTER TABLE public.vehicles DROP CONSTRAINT %I', cn);
+  END LOOP;
+END $$;
+
+ALTER TABLE public.vehicles
+  ADD CONSTRAINT vehicles_service_location_check
+  CHECK (service_location IS NULL OR service_location IN ('gmc', 'honda'));
+
 -- ============================================================================
 -- Edit audit log - tracks every manual change to a vehicle profile
 -- ============================================================================
