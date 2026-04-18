@@ -9,9 +9,17 @@ export function getDaysBetween(startDate, endDate = new Date()) {
   return Math.round(diffDays * 10) / 10
 }
 
-// Get total days vehicle has been in recon
-export function getTotalDays(createdAt) {
-  return getDaysBetween(createdAt)
+// Get total days vehicle has been in recon. Accepts either an ISO string
+// (legacy: createdAt) or a full vehicle row (preferred). When given a vehicle
+// we use acquisition_date if set so the counter matches the real stock-in
+// date from the DMS, not the app-import timestamp.
+export function getTotalDays(source) {
+  if (!source) return 0
+  if (typeof source === 'string' || source instanceof Date) {
+    return getDaysBetween(source)
+  }
+  const dateStr = source.acquisition_date || source.created_at
+  return dateStr ? getDaysBetween(dateStr) : 0
 }
 
 // Get days in current stage
@@ -28,9 +36,9 @@ export function isStageOverdue(stageHistory, currentStage) {
   return getCurrentStageDays(stageHistory, currentStage) > stage.maxDays
 }
 
-// Calculate holding cost
-export function getHoldingCost(createdAt) {
-  return Math.round(getTotalDays(createdAt) * HOLDING_COST_PER_DAY)
+// Calculate holding cost based on days since stock-in
+export function getHoldingCost(source) {
+  return Math.round(getTotalDays(source) * HOLDING_COST_PER_DAY)
 }
 
 // Get approval level based on cost
@@ -106,8 +114,8 @@ export function canUserMoveToStage(userRole, targetStage, permissions) {
 }
 
 // Aging bucket for a vehicle: "fresh" | "on_track" | "aging" | "stale"
-export function getAgingBucket(createdAt) {
-  const days = getTotalDays(createdAt)
+export function getAgingBucket(source) {
+  const days = getTotalDays(source)
   if (days <= 2) return 'fresh'
   if (days <= TARGET_FRONTLINE_DAYS) return 'on_track'
   if (days <= TARGET_FRONTLINE_DAYS * 2) return 'aging'

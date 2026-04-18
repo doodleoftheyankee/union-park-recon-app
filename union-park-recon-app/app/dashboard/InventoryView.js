@@ -12,15 +12,16 @@ const SORTS = {
   stock: { label: 'Stock #', fn: (a, b) => (a.stock_number || '').localeCompare(b.stock_number || '') },
   make: { label: 'Make', fn: (a, b) => (a.make || '').localeCompare(b.make || '') },
   cost_desc: { label: 'Cost (high-low)', fn: (a, b) => (b.estimated_cost || 0) - (a.estimated_cost || 0) },
-  days_desc: { label: 'Oldest in recon', fn: (a, b) => getTotalDays(b.created_at) - getTotalDays(a.created_at) },
+  days_desc: { label: 'Oldest in recon', fn: (a, b) => getTotalDays(b) - getTotalDays(a) },
 }
 
-export default function InventoryView({ vehicles, onOpen, onEdit, onExport, canEdit }) {
+export default function InventoryView({ vehicles, onOpen, onEdit, onExport, canEdit, onBulkMove }) {
   const [query, setQuery] = useState('')
   const [stageFilter, setStageFilter] = useState('all')
   const [classFilter, setClassFilter] = useState('all')
   const [showRejected, setShowRejected] = useState(false)
   const [sort, setSort] = useState('newest')
+  const [selected, setSelected] = useState(new Set())
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -39,6 +40,28 @@ export default function InventoryView({ vehicles, onOpen, onEdit, onExport, canE
       })
       .sort(SORTS[sort].fn)
   }, [vehicles, query, stageFilter, classFilter, showRejected, sort])
+
+  const toggleSelect = (id) => {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }
+  const toggleSelectAll = () => {
+    if (filtered.every((v) => selected.has(v.id))) setSelected(new Set())
+    else setSelected(new Set(filtered.map((v) => v.id)))
+  }
+  const allSelected = filtered.length > 0 && filtered.every((v) => selected.has(v.id))
+
+  const bulkMove = async (stage) => {
+    const ids = [...selected]
+    if (!ids.length) return
+    const label = STAGES.find((st) => st.id === stage)?.name || stage
+    if (!confirm(`Move ${ids.length} vehicle${ids.length === 1 ? '' : 's'} to ${label}?`)) return
+    await onBulkMove?.(ids, stage)
+    setSelected(new Set())
+  }
 
   return (
     <>
@@ -74,14 +97,41 @@ export default function InventoryView({ vehicles, onOpen, onEdit, onExport, canE
         </button>
       </div>
 
-      <div style={{ marginBottom: 10, fontSize: 12, color: '#94a3b8' }}>
-        Showing {filtered.length} of {vehicles.length} vehicles
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, gap: 10, flexWrap: 'wrap' }}>
+        <div style={{ fontSize: 12, color: '#94a3b8' }}>
+          Showing {filtered.length} of {vehicles.length} vehicles{selected.size > 0 ? ` · ${selected.size} selected` : ''}
+        </div>
+        {canEdit && selected.size > 0 && (
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <span style={{ fontSize: 11, color: '#94a3b8' }}>Bulk move to:</span>
+            {['appraisal', 'service_queue', 'service', 'detail', 'inspection', 'frontline'].map((st) => {
+              const stage = STAGES.find((x) => x.id === st)
+              return (
+                <button
+                  key={st}
+                  style={{ padding: '6px 10px', background: st === 'frontline' ? '#22c55e' : 'rgba(59,130,246,0.2)', border: `1px solid ${st === 'frontline' ? '#22c55e' : '#3b82f6'}`, borderRadius: 4, color: 'white', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
+                  onClick={() => bulkMove(st)}
+                >
+                  {stage?.icon} {stage?.name}
+                </button>
+              )
+            })}
+            <button style={{ padding: '6px 10px', background: 'transparent', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 4, color: '#94a3b8', fontSize: 11, cursor: 'pointer' }} onClick={() => setSelected(new Set())}>
+              Clear
+            </button>
+          </div>
+        )}
       </div>
 
       <div style={s.tableWrap}>
         <table style={s.table}>
           <thead>
             <tr>
+              {canEdit && (
+                <th style={s.th}>
+                  <input type="checkbox" checked={allSelected} onChange={toggleSelectAll} />
+                </th>
+              )}
               <th style={s.th}>Stock</th>
               <th style={s.th}>Vehicle</th>
               <th style={s.th}>Trim</th>
@@ -99,8 +149,14 @@ export default function InventoryView({ vehicles, onOpen, onEdit, onExport, canE
           <tbody>
             {filtered.map((v) => {
               const stage = STAGES.find((st) => st.id === v.stage)
+              const isSelected = selected.has(v.id)
               return (
-                <tr key={v.id} style={s.tr(v.is_rejected)} onClick={() => onOpen(v)}>
+                <tr key={v.id} style={{ ...s.tr(v.is_rejected), background: isSelected ? 'rgba(59,130,246,0.12)' : (v.is_rejected ? 'rgba(239,68,68,0.05)' : 'transparent') }} onClick={() => onOpen(v)}>
+                  {canEdit && (
+                    <td style={s.td} onClick={(e) => e.stopPropagation()}>
+                      <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(v.id)} />
+                    </td>
+                  )}
                   <td style={s.td}>
                     <div style={{ fontWeight: 700 }}>#{v.stock_number}</div>
                     {v.is_high_end && <div style={{ fontSize: 9, color: '#ef4444', fontWeight: 600 }}>HIGH-END</div>}
@@ -119,7 +175,7 @@ export default function InventoryView({ vehicles, onOpen, onEdit, onExport, canE
                   <td style={s.td}><span style={s.gradeBadge(v.grade)}>{v.grade}</span></td>
                   <td style={s.td}>{v.service_location === 'gmc' ? 'GMC' : v.service_location === 'honda' ? 'Honda' : '—'}</td>
                   <td style={s.td}>{stage ? `${stage.icon} ${stage.name}` : v.stage}</td>
-                  <td style={s.td}>{getTotalDays(v.created_at)}d</td>
+                  <td style={s.td}>{getTotalDays(v)}d</td>
                   <td style={s.td}>{formatMoney(v.estimated_cost)}</td>
                   <td style={s.td}>{formatShortDate(v.acquisition_date || v.created_at)}</td>
                   <td style={s.td} onClick={(e) => e.stopPropagation()}>
@@ -136,7 +192,7 @@ export default function InventoryView({ vehicles, onOpen, onEdit, onExport, canE
               )
             })}
             {filtered.length === 0 && (
-              <tr><td colSpan={12} style={{ padding: 24, textAlign: 'center', color: '#64748b' }}>No vehicles match your filters</td></tr>
+              <tr><td colSpan={canEdit ? 13 : 12} style={{ padding: 24, textAlign: 'center', color: '#64748b' }}>No vehicles match your filters</td></tr>
             )}
           </tbody>
         </table>

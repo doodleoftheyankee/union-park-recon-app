@@ -157,6 +157,41 @@ export const COST_CATEGORIES = [
   { id: 'cost_vendor', label: 'Vendor', icon: '🚐', color: '#8b5cf6' },
 ]
 
+// Shops that bill us - used on the shop-bill entry form
+export const BILL_SHOPS = {
+  gmc: 'GMC Service',
+  honda: 'Honda Service',
+  pdr: 'PDR Guy',
+  wheel_medic: 'Wheel Medic',
+  key_guy: 'Key Guy',
+  hubcap_jack: 'Hubcap Jack',
+  body_shop: 'Body Shop',
+  parts: 'Parts Dept',
+  other: 'Other',
+}
+
+// Map shops to the default cost category they roll up to
+export const SHOP_DEFAULT_CATEGORY = {
+  gmc: 'mechanical',
+  honda: 'mechanical',
+  pdr: 'body',
+  wheel_medic: 'vendor',
+  key_guy: 'vendor',
+  hubcap_jack: 'vendor',
+  body_shop: 'body',
+  parts: 'parts',
+  other: 'mechanical',
+}
+
+// Categories for a shop bill (shorthand form of COST_CATEGORIES)
+export const BILL_CATEGORIES = {
+  mechanical: 'Mechanical',
+  body: 'Body / PDR',
+  detail: 'Detail',
+  parts: 'Parts',
+  vendor: 'Vendor',
+}
+
 // Approval thresholds
 export const APPROVAL_THRESHOLDS = [
   { max: 1200, approvers: [], label: 'Auto-Approved' },
