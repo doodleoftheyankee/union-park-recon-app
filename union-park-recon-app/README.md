@@ -47,10 +47,11 @@ Live at **www.unionparkgmcrecon.com** (Supabase + Vercel + Next.js 14).
 ### 1. Supabase
 1. Sign in at [supabase.com](https://supabase.com) and create a project.
 2. In **SQL Editor**, run `supabase/schema.sql` to create the base schema.
-3. Then run `supabase/schema-v2.sql` to add v2 columns (rich vehicle fields,
-   audit log, inventory imports, view). The migration is idempotent — safe to
-   re-run if you upgrade later.
-4. Get your `Project URL` and `anon public` key from **Settings → API**.
+3. Apply the v2 migration. Either:
+   - **Via dashboard:** paste `supabase/migrations/20260418120000_v2_intelligence_import_and_audit.sql` into the SQL Editor and run it, OR
+   - **Via CLI:** from the `union-park-recon-app` folder: `supabase login && supabase link --project-ref ggvcbnhusotfqqivbxoa && supabase db push`
+4. The migration is idempotent — safe to re-run.
+5. Get your `Project URL` and `anon public` key from **Settings → API**.
 
 ### 2. Seed users
 In **Authentication → Users**, create each user. Click "Show metadata" when
@@ -185,8 +186,10 @@ lib/
   supabase.js          # browser client
   supabase-server.js   # server-side client (for future route handlers)
 supabase/
+  config.toml          # Supabase CLI project config
   schema.sql           # base schema (v1)
-  schema-v2.sql        # migration: new columns + audit + imports + view
+  migrations/          # timestamped migrations picked up by `supabase db push`
+    20260418120000_v2_intelligence_import_and_audit.sql
   seed-users.sql       # role assignments
 ```
 
