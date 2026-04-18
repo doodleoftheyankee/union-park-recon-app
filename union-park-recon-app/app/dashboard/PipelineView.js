@@ -59,7 +59,7 @@ export default function PipelineView({ vehicles, stageHistory, onOpen, onDropMov
                   <span style={{ fontSize: 10, color: '#94a3b8' }}>
                     {STAGES.find((x) => x.id === v.stage)?.icon} {STAGES.find((x) => x.id === v.stage)?.name}
                   </span>
-                  <span style={s.daysInd(getTotalDays(v.created_at), 5)}>{getTotalDays(v.created_at)}d</span>
+                  <span style={s.daysInd(getTotalDays(v), 5)}>{getTotalDays(v)}d</span>
                 </div>
               </div>
             ))}
@@ -75,7 +75,7 @@ export default function PipelineView({ vehicles, stageHistory, onOpen, onDropMov
         {STAGES.map((st) => {
           const list = vehicles
             .filter((v) => v.stage === st.id && !v.is_rejected)
-            .sort((a, b) => (a.priority !== 'none' ? -1 : 1) - (b.priority !== 'none' ? -1 : 1) || getTotalDays(b.created_at) - getTotalDays(a.created_at))
+            .sort((a, b) => (a.priority !== 'none' ? -1 : 1) - (b.priority !== 'none' ? -1 : 1) || getTotalDays(b) - getTotalDays(a))
           const color =
             st.id === 'frontline' ? '#22c55e' :
             st.id === 'approval' ? '#f59e0b' :

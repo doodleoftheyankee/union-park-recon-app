@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import { s } from './styles'
-import { STAGES, PRIORITY_FLAGS } from '@/lib/constants'
+import { STAGES, PRIORITY_FLAGS, BILL_SHOPS, BILL_CATEGORIES, SHOP_DEFAULT_CATEGORY } from '@/lib/constants'
 import {
   getTotalDays, getHoldingCost, isStageOverdue, formatTimeAgo,
   formatShortDate, formatMoney,
@@ -15,6 +15,7 @@ export default function DetailModal({
   vehicle: v,
   notes,
   stageHistory,
+  bills,
   permissions,
   onClose,
   onAddNote,
@@ -24,10 +25,16 @@ export default function DetailModal({
   onEdit,
   onApplyAction,
   onReject,
+  onAddBill,
+  onDeleteBill,
 }) {
   const [newNote, setNewNote] = useState('')
   const [showParts, setShowParts] = useState(false)
   const [parts, setParts] = useState({ partName: '', partNumber: '', supplier: '', days: 2 })
+  const [showBillForm, setShowBillForm] = useState(false)
+  const [bill, setBill] = useState({ shop: 'gmc', category: 'mechanical', invoice_number: '', description: '', amount: '', billed_on: new Date().toISOString().slice(0, 10) })
+  const vehicleBills = bills || []
+  const billsTotal = vehicleBills.reduce((a, b) => a + (Number(b.amount) || 0), 0)
 
   const vehicleNotes = notes || []
   const vehicleHistory = stageHistory || []
@@ -57,6 +64,19 @@ export default function DetailModal({
     if (reason == null) return
     onReject?.(v.id, reason)
     onClose()
+  }
+
+  const handleSaveBill = async () => {
+    const amt = parseFloat(bill.amount)
+    if (!amt || amt <= 0) { alert('Enter a valid dollar amount'); return }
+    await onAddBill?.(v.id, {
+      ...bill,
+      amount: amt,
+      shop: bill.shop || 'other',
+      category: bill.category || SHOP_DEFAULT_CATEGORY[bill.shop] || 'mechanical',
+    })
+    setBill({ shop: 'gmc', category: 'mechanical', invoice_number: '', description: '', amount: '', billed_on: new Date().toISOString().slice(0, 10) })
+    setShowBillForm(false)
   }
 
   return (
@@ -175,6 +195,94 @@ export default function DetailModal({
           </div>
         </div>
 
+        <div style={{ padding: '12px 18px', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <div style={{ fontSize: 10, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase' }}>
+              Shop Bills ({vehicleBills.length}) — Total {formatMoney(billsTotal)}
+            </div>
+            {permissions.canEditAnyField && !showBillForm && (
+              <button
+                style={{ padding: '4px 10px', background: '#22c55e', border: 'none', borderRadius: 4, color: 'white', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
+                onClick={() => setShowBillForm(true)}
+              >
+                + Add Bill
+              </button>
+            )}
+          </div>
+
+          {vehicleBills.length > 0 && (
+            <div style={{ maxHeight: 160, overflowY: 'auto', marginBottom: 8 }}>
+              {vehicleBills.map((b) => (
+                <div key={b.id} style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 8, padding: '6px 8px', background: 'rgba(15,23,42,0.6)', borderRadius: 5, marginBottom: 4, fontSize: 11, alignItems: 'center' }}>
+                  <div>
+                    <div style={{ fontWeight: 600 }}>
+                      {BILL_SHOPS[b.shop] || b.shop} <span style={{ color: '#64748b', fontWeight: 400 }}>· {BILL_CATEGORIES[b.category] || b.category}</span>
+                    </div>
+                    <div style={{ fontSize: 10, color: '#64748b' }}>
+                      {b.invoice_number && `Inv #${b.invoice_number} · `}
+                      {b.billed_on ? new Date(b.billed_on).toLocaleDateString() : ''}
+                      {b.description && ` · ${b.description}`}
+                      {b.entered_by_name && ` · ${b.entered_by_name}`}
+                    </div>
+                  </div>
+                  <div style={{ fontWeight: 700 }}>{formatMoney(b.amount)}</div>
+                  {permissions.canEditAnyField && (
+                    <button
+                      style={{ padding: '2px 8px', background: 'transparent', border: '1px solid rgba(239,68,68,0.5)', borderRadius: 4, color: '#fca5a5', fontSize: 10, cursor: 'pointer' }}
+                      onClick={() => { if (confirm('Delete this bill?')) onDeleteBill?.(b.id, v.id) }}
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {showBillForm && (
+            <div style={{ padding: 10, background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.3)', borderRadius: 6 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+                <div>
+                  <label style={s.label}>Shop</label>
+                  <select style={s.input} value={bill.shop} onChange={(e) => setBill((p) => ({ ...p, shop: e.target.value, category: SHOP_DEFAULT_CATEGORY[e.target.value] || p.category }))}>
+                    {Object.entries(BILL_SHOPS).map(([k, v2]) => <option key={k} value={k}>{v2}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={s.label}>Category</label>
+                  <select style={s.input} value={bill.category} onChange={(e) => setBill((p) => ({ ...p, category: e.target.value }))}>
+                    {Object.entries(BILL_CATEGORIES).map(([k, v2]) => <option key={k} value={k}>{v2}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={s.label}>Amount</label>
+                  <input style={s.input} type="number" step="0.01" placeholder="0.00" value={bill.amount} onChange={(e) => setBill((p) => ({ ...p, amount: e.target.value }))} autoFocus />
+                </div>
+                <div>
+                  <label style={s.label}>Billed on</label>
+                  <input style={s.input} type="date" value={bill.billed_on} onChange={(e) => setBill((p) => ({ ...p, billed_on: e.target.value }))} />
+                </div>
+                <div>
+                  <label style={s.label}>Invoice #</label>
+                  <input style={s.input} value={bill.invoice_number} onChange={(e) => setBill((p) => ({ ...p, invoice_number: e.target.value }))} />
+                </div>
+                <div>
+                  <label style={s.label}>Description</label>
+                  <input style={s.input} value={bill.description} onChange={(e) => setBill((p) => ({ ...p, description: e.target.value }))} placeholder="Brakes, oil change, etc." />
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button style={s.actionBtn(false)} onClick={() => setShowBillForm(false)}>Cancel</button>
+                <button style={s.actionBtn(true)} onClick={handleSaveBill}>Save Bill</button>
+              </div>
+            </div>
+          )}
+
+          {!showBillForm && vehicleBills.length === 0 && (
+            <div style={{ padding: 10, textAlign: 'center', color: '#64748b', fontSize: 11 }}>No bills entered yet</div>
+          )}
+        </div>
+
         <div style={s.timelineGrid}>
           {STAGES.map((st) => {
             const h = vehicleHistory.find((x) => x.stage === st.id)
@@ -193,10 +301,10 @@ export default function DetailModal({
         </div>
 
         <div style={s.costBar}>
-          <div><div style={s.costLabel}>Total Days</div><div style={{ ...s.costVal, color: getTotalDays(v.created_at) > 5 ? '#ef4444' : '#22c55e' }}>{getTotalDays(v.created_at)}</div></div>
+          <div><div style={s.costLabel}>Total Days</div><div style={{ ...s.costVal, color: getTotalDays(v) > 5 ? '#ef4444' : '#22c55e' }}>{getTotalDays(v)}</div></div>
           <div><div style={s.costLabel}>Est. Cost</div><div style={s.costVal}>{formatMoney(v.estimated_cost)}</div></div>
-          <div><div style={s.costLabel}>Actual</div><div style={{ ...s.costVal, color: (v.actual_cost || costRollup) > v.estimated_cost ? '#f59e0b' : '#22c55e' }}>{formatMoney(v.actual_cost || costRollup)}</div></div>
-          <div><div style={s.costLabel}>Holding</div><div style={{ ...s.costVal, color: '#ef4444' }}>{formatMoney(getHoldingCost(v.created_at))}</div></div>
+          <div><div style={s.costLabel}>Actual</div><div style={{ ...s.costVal, color: (billsTotal || v.actual_cost || costRollup) > v.estimated_cost ? '#f59e0b' : '#22c55e' }}>{formatMoney(billsTotal || v.actual_cost || costRollup)}</div></div>
+          <div><div style={s.costLabel}>Holding</div><div style={{ ...s.costVal, color: '#ef4444' }}>{formatMoney(getHoldingCost(v))}</div></div>
         </div>
 
         {(permissions.canMoveAnyStage || permissions.allowedStages?.length > 0) && (

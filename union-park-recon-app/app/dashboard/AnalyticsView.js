@@ -29,10 +29,10 @@ export default function AnalyticsView({ vehicles }) {
 
     const totalRecon = vehicles.reduce((a, v) => a + (Number(v.actual_cost) || rollupCost(v)), 0)
     const totalEstimated = vehicles.reduce((a, v) => a + (Number(v.estimated_cost) || 0), 0)
-    const totalHolding = active.reduce((a, v) => a + getTotalDays(v.created_at) * HOLDING_COST_PER_DAY, 0)
+    const totalHolding = active.reduce((a, v) => a + getTotalDays(v) * HOLDING_COST_PER_DAY, 0)
 
     const byAging = { fresh: 0, on_track: 0, aging: 0, stale: 0 }
-    active.forEach((v) => { byAging[getAgingBucket(v.created_at)]++ })
+    active.forEach((v) => { byAging[getAgingBucket(v)]++ })
 
     const byStage = {}
     STAGES.forEach((st) => { byStage[st.id] = active.filter((v) => v.stage === st.id).length })

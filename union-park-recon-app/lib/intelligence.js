@@ -98,7 +98,7 @@ export function predictFrontlineDate(vehicle, stageHistory = []) {
 export function computeRisks(vehicle, stageHistory = [], notes = []) {
   const risks = []
   if (!vehicle) return risks
-  const totalDays = getTotalDays(vehicle.created_at)
+  const totalDays = getTotalDays(vehicle)
   const stageDays = getCurrentStageDays(stageHistory, vehicle.stage)
   const stage = STAGES.find((s) => s.id === vehicle.stage)
 

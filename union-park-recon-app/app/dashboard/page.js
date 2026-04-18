@@ -33,6 +33,7 @@ export default function DashboardPage() {
   const [vehicles, setVehicles] = useState([])
   const [notes, setNotes] = useState({})
   const [stageHistory, setStageHistory] = useState({})
+  const [bills, setBills] = useState({})
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState('pipeline')
 
@@ -53,10 +54,16 @@ export default function DashboardPage() {
         .from('profiles').select('*').eq('id', session.user.id).single()
       setProfile(profileData)
 
-      const [{ data: vehiclesData }, { data: notesData }, { data: historyData }] = await Promise.all([
+      const [
+        { data: vehiclesData },
+        { data: notesData },
+        { data: historyData },
+        { data: billsData },
+      ] = await Promise.all([
         supabase.from('vehicles').select('*').order('created_at', { ascending: false }),
         supabase.from('notes').select('*').order('created_at', { ascending: false }),
         supabase.from('stage_history').select('*').order('entered_at', { ascending: true }),
+        supabase.from('shop_bills').select('*').order('billed_on', { ascending: false }),
       ])
 
       setVehicles(vehiclesData || [])
@@ -74,6 +81,14 @@ export default function DashboardPage() {
         historyByVehicle[h.vehicle_id].push(h)
       })
       setStageHistory(historyByVehicle)
+
+      const billsByVehicle = {}
+      billsData?.forEach((b) => {
+        if (!billsByVehicle[b.vehicle_id]) billsByVehicle[b.vehicle_id] = []
+        billsByVehicle[b.vehicle_id].push(b)
+      })
+      setBills(billsByVehicle)
+
       setLoading(false)
     }
 
@@ -114,10 +129,30 @@ export default function DashboardPage() {
       })
       .subscribe()
 
+    const billsChannel = supabase
+      .channel('bills-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'shop_bills' }, (payload) => {
+        setBills((prev) => {
+          const vid = payload.new?.vehicle_id || payload.old?.vehicle_id
+          const list = prev[vid] ? [...prev[vid]] : []
+          if (payload.eventType === 'INSERT') {
+            if (!list.find((b) => b.id === payload.new.id)) list.unshift(payload.new)
+          } else if (payload.eventType === 'UPDATE') {
+            const i = list.findIndex((b) => b.id === payload.new.id)
+            if (i >= 0) list[i] = payload.new
+          } else if (payload.eventType === 'DELETE') {
+            return { ...prev, [vid]: list.filter((b) => b.id !== payload.old.id) }
+          }
+          return { ...prev, [vid]: list }
+        })
+      })
+      .subscribe()
+
     return () => {
       supabase.removeChannel(vehiclesChannel)
       supabase.removeChannel(notesChannel)
       supabase.removeChannel(historyChannel)
+      supabase.removeChannel(billsChannel)
     }
   }, [router, supabase])
 
@@ -242,6 +277,58 @@ export default function DashboardPage() {
     const { error } = await supabase.from('vehicles').delete().eq('id', vehicleId)
     if (error) notify(`Delete failed: ${error.message}`, 'error')
     else { notify('Vehicle deleted', 'success'); setEditingVehicle(null); setSelectedVehicle(null) }
+  }
+
+  // Shop bills
+  const addBill = async (vehicleId, data) => {
+    const { error } = await supabase.from('shop_bills').insert({
+      vehicle_id: vehicleId,
+      shop: data.shop,
+      category: data.category,
+      invoice_number: data.invoice_number || null,
+      description: data.description || null,
+      amount: data.amount,
+      billed_on: data.billed_on || null,
+      entered_by_id: user.id,
+      entered_by_name: profile.full_name,
+    })
+    if (error) { notify(`Error adding bill: ${error.message}`, 'error'); return }
+    // Roll up: update vehicle.actual_cost to sum of all bills
+    const vehicleBills = [...(bills[vehicleId] || []), { amount: data.amount }]
+    const total = vehicleBills.reduce((a, b) => a + (Number(b.amount) || 0), 0)
+    await supabase.from('vehicles').update({ actual_cost: total, updated_at: new Date().toISOString() }).eq('id', vehicleId)
+    await addNote(vehicleId, `Shop bill: ${formatMoney(data.amount)} · ${data.shop}${data.description ? ` · ${data.description}` : ''}`, 'note')
+    notify(`Bill added: ${formatMoney(data.amount)}`, 'success')
+  }
+
+  const deleteBill = async (billId, vehicleId) => {
+    const { error } = await supabase.from('shop_bills').delete().eq('id', billId)
+    if (error) { notify(`Error: ${error.message}`, 'error'); return }
+    const remaining = (bills[vehicleId] || []).filter((b) => b.id !== billId)
+    const total = remaining.reduce((a, b) => a + (Number(b.amount) || 0), 0)
+    await supabase.from('vehicles').update({ actual_cost: total, updated_at: new Date().toISOString() }).eq('id', vehicleId)
+    notify('Bill removed', 'info')
+  }
+
+  // Bulk move vehicles to a stage (used from inventory view)
+  const bulkMove = async (vehicleIds, newStage) => {
+    const now = new Date().toISOString()
+    for (const vehicleId of vehicleIds) {
+      const vehicle = vehicles.find((v) => v.id === vehicleId)
+      if (!vehicle || vehicle.stage === newStage) continue
+      const currentHistory = stageHistory[vehicleId]?.find((h) => !h.exited_at)
+      if (currentHistory) {
+        await supabase.from('stage_history').update({ exited_at: now }).eq('id', currentHistory.id)
+      }
+      await supabase.from('stage_history').insert({
+        vehicle_id: vehicleId, stage: newStage,
+        moved_by_id: user.id, moved_by_name: profile.full_name,
+      })
+      const patch = { stage: newStage, updated_at: now }
+      if (newStage === 'frontline') patch.frontline_at = now
+      await supabase.from('vehicles').update(patch).eq('id', vehicleId)
+    }
+    notify(`Moved ${vehicleIds.length} vehicle${vehicleIds.length === 1 ? '' : 's'} to ${STAGES.find((s) => s.id === newStage)?.name}`, 'success')
   }
 
   const partsHold = async (vehicleId, parts) => {
@@ -382,8 +469,8 @@ export default function DashboardPage() {
   // Aging alerts list (for header dropdown)
   const agingAlerts = vehicles
     .filter((v) => v.stage !== 'frontline' && !v.is_rejected)
-    .filter((v) => isStageOverdue(stageHistory[v.id], v.stage) || getTotalDays(v.created_at) > 5)
-    .sort((a, b) => getTotalDays(b.created_at) - getTotalDays(a.created_at))
+    .filter((v) => isStageOverdue(stageHistory[v.id], v.stage) || getTotalDays(v) > 5)
+    .sort((a, b) => getTotalDays(b) - getTotalDays(a))
 
   const getStageCount = (stageId) => vehicles.filter((v) => v.stage === stageId && !v.is_rejected).length
 
@@ -432,7 +519,7 @@ export default function DashboardPage() {
                       <span style={s.gradeBadge(v.grade)}>{v.grade}</span>
                     </div>
                     <div style={{ fontSize: 10, color: '#94a3b8' }}>#{v.stock_number} • {STAGES.find((x) => x.id === v.stage)?.name}</div>
-                    <div style={{ fontSize: 10, color: '#ef4444' }}>⏰ {getTotalDays(v.created_at)} days</div>
+                    <div style={{ fontSize: 10, color: '#ef4444' }}>⏰ {getTotalDays(v)} days</div>
                   </div>
                 ))}
               </div>
@@ -478,6 +565,7 @@ export default function DashboardPage() {
             onEdit={openEdit}
             onExport={exportInventory}
             canEdit={permissions.canEditAnyField}
+            onBulkMove={bulkMove}
           />
         )}
 
@@ -493,6 +581,7 @@ export default function DashboardPage() {
           vehicle={liveSelected}
           notes={notes[liveSelected.id]}
           stageHistory={stageHistory[liveSelected.id]}
+          bills={bills[liveSelected.id]}
           permissions={permissions}
           onClose={() => setSelectedVehicle(null)}
           onAddNote={addNote}
@@ -502,6 +591,8 @@ export default function DashboardPage() {
           onEdit={() => openEdit(liveSelected)}
           onApplyAction={applyAction}
           onReject={rejectVehicle}
+          onAddBill={addBill}
+          onDeleteBill={deleteBill}
         />
       )}
       {liveEditing && (
