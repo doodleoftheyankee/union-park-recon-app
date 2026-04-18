@@ -3,7 +3,8 @@
 import { useMemo, useState } from 'react'
 import { s } from './styles'
 import { GRADES, VENDORS, ACQUISITION_SOURCES } from '@/lib/constants'
-import { classifyBrand, routeServiceLocation, isHighEnd, suggestGrade, decodeVin } from '@/lib/intelligence'
+import { classifyBrand, routeServiceLocation, isHighEnd, suggestGrade, decodeVin, enrichVehicle, estimateReconCosts } from '@/lib/intelligence'
+import { formatMoney } from '@/lib/utils'
 
 const empty = {
   stock_number: '', year: '', make: '', model: '', trim: '', vin: '',
@@ -22,6 +23,10 @@ export default function AddModal({ onClose, onAdd }) {
   const vinInfo = form.vin ? decodeVin(form.vin) : null
 
   const suggestedGrade = useMemo(() => suggestGrade(form), [form.mileage, form.year, form.estimated_cost])
+  const suggestedEstimate = useMemo(
+    () => estimateReconCosts({ grade: form.grade || suggestedGrade, mileage: form.mileage, year: form.year, total: Number(form.estimated_cost) || undefined }),
+    [form.grade, form.mileage, form.year, form.estimated_cost, suggestedGrade],
+  )
 
   const set = (patch) => setForm((p) => ({ ...p, ...patch }))
   const toggleVendor = (id) =>
@@ -33,19 +38,14 @@ export default function AddModal({ onClose, onAdd }) {
       const ok = confirm(`${form.make} is a high-end brand we don't recondition. Add it anyway (flagged for wholesale)?`)
       if (!ok) return
     }
-    onAdd({
+    const coerced = {
       ...form,
       year: parseInt(form.year) || null,
       mileage: parseInt(form.mileage) || null,
       estimated_cost: parseFloat(form.estimated_cost) || 0,
       purchase_price: parseFloat(form.purchase_price) || null,
-      grade: form.grade || suggestedGrade,
-      service_location: form.service_location || autoRoute || '',
-      is_high_end: highEnd,
-      is_rejected: highEnd,
-      reject_reason: highEnd ? `${form.make} is on the do-not-recondition list` : null,
-      origin_class: classification,
-    })
+    }
+    onAdd(enrichVehicle(coerced))
   }
 
   return (
@@ -146,9 +146,20 @@ export default function AddModal({ onClose, onAdd }) {
               </select>
             </div>
             <div style={s.formGroup}>
-              <label style={s.label}>Est. Cost</label>
-              <input style={s.input} type="number" value={form.estimated_cost} onChange={(e) => set({ estimated_cost: e.target.value })} />
+              <label style={s.label}>Est. Cost {!form.estimated_cost && <span style={{ color: '#22c55e' }}>(auto: {formatMoney(suggestedEstimate.estimated_cost)})</span>}</label>
+              <input style={s.input} type="number" value={form.estimated_cost} onChange={(e) => set({ estimated_cost: e.target.value })} placeholder={String(suggestedEstimate.estimated_cost)} />
             </div>
+          </div>
+
+          <div style={{ padding: 8, borderRadius: 6, background: 'rgba(59,130,246,0.08)', border: '1px dashed rgba(59,130,246,0.3)', marginBottom: 12, fontSize: 11, display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 6 }}>
+            <div style={{ gridColumn: '1 / -1', color: '#94a3b8', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+              💡 Suggested breakdown (editable after add)
+            </div>
+            <div>🛠️ Mech <b style={{ color: '#f1f5f9' }}>{formatMoney(suggestedEstimate.cost_mechanical)}</b></div>
+            <div>🔨 Body <b style={{ color: '#f1f5f9' }}>{formatMoney(suggestedEstimate.cost_body)}</b></div>
+            <div>✨ Detail <b style={{ color: '#f1f5f9' }}>{formatMoney(suggestedEstimate.cost_detail)}</b></div>
+            <div>📦 Parts <b style={{ color: '#f1f5f9' }}>{formatMoney(suggestedEstimate.cost_parts)}</b></div>
+            <div>🚐 Vend <b style={{ color: '#f1f5f9' }}>{formatMoney(suggestedEstimate.cost_vendor)}</b></div>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
             <div style={s.formGroup}>

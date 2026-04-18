@@ -227,6 +227,52 @@ export function decodeVin(vin) {
   }
 }
 
+// Ballpark recon cost breakdown by category, tuned to grade + mileage + age.
+// Returns { cost_mechanical, cost_body, cost_detail, cost_parts, cost_vendor,
+// estimated_cost }. Pass `total` to scale the breakdown to a specific number
+// the user already has in mind.
+export function estimateReconCosts({ grade, mileage, year, total } = {}) {
+  const mi = Number(mileage) || 0
+  const age = year ? Math.max(0, new Date().getFullYear() - Number(year)) : 0
+
+  // Base per-category allocations that roughly match the grade thresholds.
+  const base = ({
+    A: { mechanical: 100, body: 50,  detail: 300, parts: 50,  vendor: 0   }, // $500
+    B: { mechanical: 500, body: 100, detail: 300, parts: 200, vendor: 100 }, // $1,200
+    C: { mechanical: 700, body: 200, detail: 300, parts: 300, vendor: 200 }, // $1,700
+    D: { mechanical: 1200, body: 300, detail: 400, parts: 500, vendor: 100 }, // $2,500
+  })[grade] || { mechanical: 500, body: 100, detail: 300, parts: 200, vendor: 100 }
+
+  // Older / higher-mileage cars bump Mechanical + Parts (brakes, fluids, etc.)
+  let mechBump = 1
+  let partsBump = 1
+  if (mi > 100000) { mechBump += 0.35; partsBump += 0.2 }
+  else if (mi > 70000) { mechBump += 0.2; partsBump += 0.1 }
+  if (age > 8) mechBump += 0.2
+  else if (age > 5) mechBump += 0.1
+
+  const raw = {
+    mechanical: base.mechanical * mechBump,
+    body: base.body,
+    detail: base.detail,
+    parts: base.parts * partsBump,
+    vendor: base.vendor,
+  }
+
+  // Scale to `total` if provided, else snap to nearest $25
+  const rawSum = Object.values(raw).reduce((a, b) => a + b, 0) || 1
+  const scale = total ? total / rawSum : 1
+  const round25 = (n) => Math.max(0, Math.round((n * scale) / 25) * 25)
+
+  const cost_mechanical = round25(raw.mechanical)
+  const cost_body = round25(raw.body)
+  const cost_detail = round25(raw.detail)
+  const cost_parts = round25(raw.parts)
+  const cost_vendor = round25(raw.vendor)
+  const estimated_cost = cost_mechanical + cost_body + cost_detail + cost_parts + cost_vendor
+  return { cost_mechanical, cost_body, cost_detail, cost_parts, cost_vendor, estimated_cost }
+}
+
 // Build a full "enrichment" block for a raw row (CSV import / manual entry)
 export function enrichVehicle(raw) {
   const make = raw.make
@@ -234,7 +280,28 @@ export function enrichVehicle(raw) {
   const highEnd = classification === 'high_end'
   const suggested_service = highEnd ? null : routeServiceLocation(make)
   const suggested_grade = raw.grade || suggestGrade(raw)
+
+  // Seed cost estimates when they aren't provided. If the row already has
+  // an estimated_cost total, scale the category breakdown to match. If it
+  // has any per-category value, leave everything alone (assume manual).
+  const hasAnyCategory =
+    (Number(raw.cost_mechanical) || 0) +
+    (Number(raw.cost_body) || 0) +
+    (Number(raw.cost_detail) || 0) +
+    (Number(raw.cost_parts) || 0) +
+    (Number(raw.cost_vendor) || 0) > 0
+  let seed = {}
+  if (!hasAnyCategory) {
+    seed = estimateReconCosts({
+      grade: suggested_grade,
+      mileage: raw.mileage,
+      year: raw.year,
+      total: Number(raw.estimated_cost) || undefined,
+    })
+  }
+
   return {
+    ...seed,
     ...raw,
     origin_class: classification,
     is_high_end: highEnd,
@@ -244,5 +311,6 @@ export function enrichVehicle(raw) {
       : raw.reject_reason || null,
     service_location: raw.service_location || suggested_service || null,
     grade: suggested_grade,
+    estimated_cost: Number(raw.estimated_cost) || seed.estimated_cost || 0,
   }
 }
