@@ -1,0 +1,7 @@
+# build output (stray from root-level next build runs)
+.next/
+node_modules/
+
+# local env
+.env
+.env.local

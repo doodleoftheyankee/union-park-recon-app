@@ -264,40 +264,92 @@ export default function DashboardPage() {
   // Bulk import
   const importVehicles = async (rows, fileName, onProgress) => {
     let created = 0, updated = 0, rejected = 0, errors = 0
+    const errorDetails = []
+    // Track stock numbers we've already inserted/updated during THIS run so
+    // same-CSV duplicates become updates instead of unique-index violations.
+    const seenStocks = new Map()
+
+    // Columns we actually write to the DB. Anything else in the row is dropped
+    // so unmapped/junk CSV columns don't cause "column does not exist" errors.
+    const DB_COLS = new Set([
+      'stock_number', 'vin', 'year', 'make', 'model', 'trim', 'body_style',
+      'exterior_color', 'interior_color', 'mileage', 'drivetrain', 'fuel_type',
+      'transmission', 'engine', 'grade', 'service_location', 'estimated_cost',
+      'actual_cost', 'priority', 'decision', 'vendors', 'stage',
+      'acquisition_source', 'acquisition_date', 'purchase_price',
+      'target_frontline_date', 'asking_price', 'photos', 'origin_class',
+      'is_high_end', 'is_rejected', 'reject_reason',
+      'cost_mechanical', 'cost_body', 'cost_detail', 'cost_parts', 'cost_vendor',
+      'external_id', 'appraiser_id', 'appraiser_name',
+    ])
+
+    const sanitize = (row) => {
+      const clean = {}
+      for (const [k, v] of Object.entries(row)) {
+        if (!DB_COLS.has(k)) continue
+        // Normalize empty strings to null so NOT-NULL-but-nullable columns
+        // and CHECK constraints stop rejecting them.
+        if (typeof v === 'string' && v.trim() === '') continue
+        clean[k] = v
+      }
+      return clean
+    }
+
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i]
       try {
-        const existing = vehicles.find((v) => v.stock_number === row.stock_number || (row.vin && v.vin === row.vin))
-        // fill missing defaults
-        const payload = {
-          stage: 'appraisal',
-          priority: 'none',
-          vendors: [],
-          ...row,
-        }
+        if (!row.stock_number) throw new Error('missing stock number')
+        if (!row.year) throw new Error('missing year')
+        if (!row.make) throw new Error('missing make')
+        if (!row.model) throw new Error('missing model')
+        const clean = sanitize(row)
+        if (!clean.grade) clean.grade = 'B'
+
+        const existing =
+          seenStocks.get(clean.stock_number) ||
+          vehicles.find((v) => v.stock_number === clean.stock_number || (clean.vin && v.vin === clean.vin))
+
+        const payload = { stage: 'appraisal', priority: 'none', vendors: [], ...clean }
+
         if (existing) {
-          await supabase.from('vehicles').update({ ...payload, updated_at: new Date().toISOString() }).eq('id', existing.id)
+          const { error } = await supabase
+            .from('vehicles')
+            .update({ ...payload, updated_at: new Date().toISOString() })
+            .eq('id', existing.id)
+          if (error) throw error
+          seenStocks.set(clean.stock_number, existing)
           updated++
         } else {
-          const { data, error } = await supabase.from('vehicles').insert({
-            ...payload,
-            appraiser_id: user.id,
-            appraiser_name: profile.full_name,
-          }).select().single()
+          const { data, error } = await supabase
+            .from('vehicles')
+            .insert({ ...payload, appraiser_id: user.id, appraiser_name: profile.full_name })
+            .select()
+            .single()
           if (error) throw error
           await supabase.from('stage_history').insert({
-            vehicle_id: data.id, stage: 'appraisal',
-            moved_by_id: user.id, moved_by_name: profile.full_name,
+            vehicle_id: data.id,
+            stage: 'appraisal',
+            moved_by_id: user.id,
+            moved_by_name: profile.full_name,
           })
+          seenStocks.set(clean.stock_number, data)
           created++
-          if (row.is_rejected) rejected++
+          if (clean.is_rejected) rejected++
         }
       } catch (e) {
         errors++
+        const msg = e?.message || e?.details || String(e)
+        errorDetails.push({
+          row: i + 1,
+          stock: row.stock_number || '(no stock#)',
+          vehicle: [row.year, row.make, row.model].filter(Boolean).join(' ') || '(incomplete)',
+          message: msg,
+        })
         console.error('Import row failed', row, e)
       }
       onProgress?.(i + 1)
     }
+
     await supabase.from('inventory_imports').insert({
       source: 'csv',
       file_name: fileName,
@@ -306,11 +358,15 @@ export default function DashboardPage() {
       rows_updated: updated,
       rows_rejected: rejected,
       rows_skipped: errors,
+      meta: errorDetails.length ? { errors: errorDetails.slice(0, 50) } : {},
       imported_by_id: user.id,
       imported_by_name: profile.full_name,
     })
-    notify(`Import complete: ${created} new, ${updated} updated`, 'success')
-    return { created, updated, rejected, errors }
+    const msg = errors
+      ? `Imported ${created} new, ${updated} updated — ${errors} failed (see details)`
+      : `Import complete: ${created} new, ${updated} updated`
+    notify(msg, errors ? 'warn' : 'success')
+    return { created, updated, rejected, errors, errorDetails }
   }
 
   const exportInventory = () => {
@@ -405,7 +461,13 @@ export default function DashboardPage() {
               <div style={s.stat(agingAlerts.length > 0)}><div style={s.statLabel}>Overdue</div><div style={{ ...s.statVal, color: agingAlerts.length > 0 ? '#ef4444' : '#22c55e' }}>{agingAlerts.length}</div></div>
               <div style={s.stat(false)}><div style={s.statLabel}>Total Est. $</div><div style={s.statVal}>{formatMoney(vehicles.filter((v) => v.stage !== 'frontline').reduce((a, v) => a + (Number(v.estimated_cost) || 0), 0))}</div></div>
             </div>
-            <PipelineView vehicles={vehicles} stageHistory={stageHistory} onOpen={openVehicle} />
+            <PipelineView
+              vehicles={vehicles}
+              stageHistory={stageHistory}
+              onOpen={openVehicle}
+              onDropMove={(id, stage) => moveVehicle(id, stage)}
+              canMoveTo={(stage) => permissions.canMoveAnyStage || permissions.allowedStages?.includes(stage)}
+            />
           </>
         )}
 
@@ -439,6 +501,7 @@ export default function DashboardPage() {
           onPartsHold={partsHold}
           onEdit={() => openEdit(liveSelected)}
           onApplyAction={applyAction}
+          onReject={rejectVehicle}
         />
       )}
       {liveEditing && (

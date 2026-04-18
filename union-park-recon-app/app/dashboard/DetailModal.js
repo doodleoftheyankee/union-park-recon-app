@@ -5,7 +5,7 @@ import { s } from './styles'
 import { STAGES, PRIORITY_FLAGS } from '@/lib/constants'
 import {
   getTotalDays, getHoldingCost, isStageOverdue, formatTimeAgo,
-  formatShortDate, formatMoney, getNextStage,
+  formatShortDate, formatMoney,
 } from '@/lib/utils'
 import {
   computeRisks, recommendActions, predictFrontlineDate, rollupCost,
@@ -23,6 +23,7 @@ export default function DetailModal({
   onPartsHold,
   onEdit,
   onApplyAction,
+  onReject,
 }) {
   const [newNote, setNewNote] = useState('')
   const [showParts, setShowParts] = useState(false)
@@ -48,7 +49,15 @@ export default function DetailModal({
     setShowParts(false)
   }
 
-  const getNext = () => getNextStage(v.stage, v.vendors?.length > 0)
+  const canMove = (stageId) =>
+    permissions.canMoveAnyStage || permissions.allowedStages?.includes(stageId)
+
+  const handleWholesale = () => {
+    const reason = prompt('Reason for wholesale?', v.reject_reason || '')
+    if (reason == null) return
+    onReject?.(v.id, reason)
+    onClose()
+  }
 
   return (
     <div style={s.modal} onClick={onClose}>
@@ -167,7 +176,7 @@ export default function DetailModal({
         </div>
 
         <div style={s.timelineGrid}>
-          {STAGES.filter((st) => st.id !== 'decision').map((st) => {
+          {STAGES.map((st) => {
             const h = vehicleHistory.find((x) => x.stage === st.id)
             const active = v.stage === st.id
             const complete = h?.exited_at != null
@@ -190,23 +199,52 @@ export default function DetailModal({
           <div><div style={s.costLabel}>Holding</div><div style={{ ...s.costVal, color: '#ef4444' }}>{formatMoney(getHoldingCost(v.created_at))}</div></div>
         </div>
 
+        {(permissions.canMoveAnyStage || permissions.allowedStages?.length > 0) && (
+          <div style={{ padding: '12px 18px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+            <div style={{ fontSize: 10, color: '#94a3b8', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+              Move to stage
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 6 }}>
+              {STAGES.map((st) => {
+                const isCurrent = v.stage === st.id
+                const allowed = canMove(st.id)
+                return (
+                  <button
+                    key={st.id}
+                    disabled={isCurrent || !allowed}
+                    onClick={() => { onMoveStage(v.id, st.id); onClose() }}
+                    style={{
+                      padding: '8px 10px',
+                      background: isCurrent ? 'rgba(59,130,246,0.25)' : allowed ? 'rgba(15,23,42,0.8)' : 'rgba(15,23,42,0.4)',
+                      border: `1px solid ${isCurrent ? '#3b82f6' : allowed ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.05)'}`,
+                      borderRadius: 5,
+                      color: isCurrent ? '#93c5fd' : allowed ? 'white' : '#475569',
+                      fontSize: 11, fontWeight: 600,
+                      cursor: isCurrent || !allowed ? 'not-allowed' : 'pointer',
+                      textAlign: 'left',
+                    }}
+                    title={!allowed ? "You don't have permission for this stage" : isCurrent ? 'Current stage' : `Move to ${st.name}`}
+                  >
+                    {st.icon} {st.name}{isCurrent ? ' • current' : ''}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
         <div style={s.actionBar}>
-          {v.stage === 'service' && !showParts && (permissions.allowedStages?.includes('service') || permissions.canMoveAnyStage) && (
+          {v.stage === 'service' && !showParts && canMove('service') && (
             <button style={s.actionBtn(false)} onClick={() => setShowParts(true)}>📦 Parts Hold</button>
           )}
-          {v.stage === 'parts_hold' && (
+          {v.stage === 'parts_hold' && canMove('service') && (
             <button style={s.actionBtn(true)} onClick={() => onMoveStage(v.id, 'service', 'Parts received')}>✓ Parts Received</button>
           )}
           {v.stage === 'approval' && permissions.canApprove && (
             <>
-              <button style={s.actionBtn(false)} onClick={() => onMoveStage(v.id, 'decision', 'Wholesale review')}>Wholesale</button>
+              <button style={s.actionBtn(false, '#f59e0b')} onClick={handleWholesale}>Flag Wholesale</button>
               <button style={s.actionBtn(true)} onClick={() => onMoveStage(v.id, v.vendors?.length ? 'vendor' : 'detail')}>✓ Approve</button>
             </>
-          )}
-          {!['approval', 'frontline', 'parts_hold'].includes(v.stage) && (permissions.canMoveAnyStage || permissions.allowedStages?.includes(v.stage)) && (
-            <button style={{ ...s.actionBtn(true), flex: 1 }} onClick={() => { const next = getNext(); if (next) onMoveStage(v.id, next.id) }}>
-              Move to {getNext()?.name || 'Next'} →
-            </button>
           )}
         </div>
       </div>

@@ -161,14 +161,50 @@ export default function ImportModal({ onClose, onImport }) {
 
           {stage === 'done' && summary && (
             <div style={{ padding: 20 }}>
-              <div style={{ fontSize: 22, marginBottom: 12 }}>✅ Import complete</div>
-              <div style={{ fontSize: 13, lineHeight: 1.8 }}>
+              <div style={{ fontSize: 22, marginBottom: 12 }}>
+                {summary.errors ? '⚠️ Import finished with errors' : '✅ Import complete'}
+              </div>
+              <div style={{ fontSize: 13, lineHeight: 1.8, marginBottom: 14 }}>
                 <div><b>{summary.created}</b> new vehicles created</div>
                 <div><b>{summary.updated}</b> existing vehicles updated</div>
                 <div><b>{summary.rejected}</b> auto-flagged (high-end brands)</div>
-                {summary.errors > 0 && <div style={{ color: '#ef4444' }}><b>{summary.errors}</b> errors</div>}
+                {summary.errors > 0 && <div style={{ color: '#ef4444' }}><b>{summary.errors}</b> rows failed</div>}
               </div>
-              <button style={{ ...s.submitBtn, marginTop: 16 }} onClick={onClose}>Done</button>
+
+              {summary.errorDetails && summary.errorDetails.length > 0 && (
+                <>
+                  <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.5px', color: '#94a3b8', fontWeight: 600, marginBottom: 6 }}>
+                    Failures ({summary.errorDetails.length})
+                  </div>
+                  <div style={{ ...s.tableWrap, maxHeight: 280, marginBottom: 14 }}>
+                    <table style={s.table}>
+                      <thead>
+                        <tr>
+                          <th style={s.th}>#</th>
+                          <th style={s.th}>Stock</th>
+                          <th style={s.th}>Vehicle</th>
+                          <th style={s.th}>Reason</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {summary.errorDetails.map((e, i) => (
+                          <tr key={i}>
+                            <td style={s.td}>{e.row}</td>
+                            <td style={s.td}>{e.stock}</td>
+                            <td style={s.td}>{e.vehicle}</td>
+                            <td style={{ ...s.td, color: '#ef4444', whiteSpace: 'normal' }}>{e.message}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 10 }}>
+                    Tip: the most common causes are missing year / make / model, or columns your CSV uses that aren't mapped. Unmapped column names were shown on the previous screen.
+                  </div>
+                </>
+              )}
+
+              <button style={s.submitBtn} onClick={onClose}>Done</button>
             </div>
           )}
         </div>

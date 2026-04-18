@@ -51,9 +51,11 @@ export const GRADES = {
 }
 
 // Workflow stages
+// "Trade Decision" used to live here as a separate stage but was removed;
+// wholesale flagging is now handled via the is_rejected + reject_reason
+// fields instead so the pipeline column doesn't go dark on you.
 export const STAGES = [
   { id: 'appraisal', name: 'Appraisal', icon: '📋', maxDays: 1 },
-  { id: 'decision', name: 'Trade Decision', icon: '⚖️', maxDays: 1 },
   { id: 'service_queue', name: 'Service Queue', icon: '🔧', maxDays: 1 },
   { id: 'service', name: 'In Service', icon: '🛠️', maxDays: 2 },
   { id: 'parts_hold', name: 'Parts Hold', icon: '📦', maxDays: 3 },

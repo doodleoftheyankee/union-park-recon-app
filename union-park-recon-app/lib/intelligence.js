@@ -242,7 +242,7 @@ export function enrichVehicle(raw) {
     reject_reason: highEnd
       ? (raw.reject_reason || `${make} is on the do-not-recondition list`)
       : raw.reject_reason || null,
-    service_location: raw.service_location || suggested_service || '',
+    service_location: raw.service_location || suggested_service || null,
     grade: suggested_grade,
   }
 }
