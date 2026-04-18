@@ -1,4 +1,4 @@
-import { STAGES, HOLDING_COST_PER_DAY, APPROVAL_THRESHOLDS } from './constants'
+import { STAGES, HOLDING_COST_PER_DAY, APPROVAL_THRESHOLDS, TARGET_FRONTLINE_DAYS } from './constants'
 
 // Calculate days between two dates
 export function getDaysBetween(startDate, endDate = new Date()) {
@@ -57,6 +57,7 @@ export function formatTimeAgo(date) {
 
 // Format date
 export function formatDate(date) {
+  if (!date) return ''
   return new Date(date).toLocaleDateString('en-US', {
     month: 'short',
     day: 'numeric',
@@ -65,23 +66,35 @@ export function formatDate(date) {
   })
 }
 
+// Format shorter: "Apr 18"
+export function formatShortDate(date) {
+  if (!date) return ''
+  return new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+
+// Format currency
+export function formatMoney(n) {
+  const v = Number(n) || 0
+  return `$${v.toLocaleString('en-US', { maximumFractionDigits: 0 })}`
+}
+
 // Get next stage in workflow
 export function getNextStage(currentStage, hasVendors = false) {
   const stageOrder = STAGES.map(s => s.id)
   let currentIndex = stageOrder.indexOf(currentStage)
-  
+
   if (currentIndex === -1) return null
-  
+
   let nextIndex = currentIndex + 1
-  
+
   // Skip parts_hold in normal flow (it's entered manually)
   if (stageOrder[nextIndex] === 'parts_hold') nextIndex++
-  
+
   // Skip vendor if no vendors needed
   if (stageOrder[nextIndex] === 'vendor' && !hasVendors) nextIndex++
-  
+
   if (nextIndex >= stageOrder.length) return null
-  
+
   return STAGES.find(s => s.id === stageOrder[nextIndex])
 }
 
@@ -90,4 +103,25 @@ export function canUserMoveToStage(userRole, targetStage, permissions) {
   if (permissions.canMoveAnyStage) return true
   if (permissions.allowedStages?.includes(targetStage)) return true
   return false
+}
+
+// Aging bucket for a vehicle: "fresh" | "on_track" | "aging" | "stale"
+export function getAgingBucket(createdAt) {
+  const days = getTotalDays(createdAt)
+  if (days <= 2) return 'fresh'
+  if (days <= TARGET_FRONTLINE_DAYS) return 'on_track'
+  if (days <= TARGET_FRONTLINE_DAYS * 2) return 'aging'
+  return 'stale'
+}
+
+// Download blob as file
+export function downloadFile(content, filename, mime = 'text/plain') {
+  if (typeof window === 'undefined') return
+  const blob = new Blob([content], { type: mime })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
 }
