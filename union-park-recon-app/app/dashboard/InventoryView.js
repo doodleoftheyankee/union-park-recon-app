@@ -51,7 +51,7 @@ export default function InventoryView({ vehicles, onOpen, onEdit, onExport, canE
         />
         <select style={s.select} value={stageFilter} onChange={(e) => setStageFilter(e.target.value)}>
           <option value="all">All stages</option>
-          {STAGES.filter((st) => st.id !== 'decision').map((st) => (
+          {STAGES.map((st) => (
             <option key={st.id} value={st.id}>{st.name}</option>
           ))}
         </select>

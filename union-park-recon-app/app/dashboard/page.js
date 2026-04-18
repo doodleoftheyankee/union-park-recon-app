@@ -461,7 +461,13 @@ export default function DashboardPage() {
               <div style={s.stat(agingAlerts.length > 0)}><div style={s.statLabel}>Overdue</div><div style={{ ...s.statVal, color: agingAlerts.length > 0 ? '#ef4444' : '#22c55e' }}>{agingAlerts.length}</div></div>
               <div style={s.stat(false)}><div style={s.statLabel}>Total Est. $</div><div style={s.statVal}>{formatMoney(vehicles.filter((v) => v.stage !== 'frontline').reduce((a, v) => a + (Number(v.estimated_cost) || 0), 0))}</div></div>
             </div>
-            <PipelineView vehicles={vehicles} stageHistory={stageHistory} onOpen={openVehicle} />
+            <PipelineView
+              vehicles={vehicles}
+              stageHistory={stageHistory}
+              onOpen={openVehicle}
+              onDropMove={(id, stage) => moveVehicle(id, stage)}
+              canMoveTo={(stage) => permissions.canMoveAnyStage || permissions.allowedStages?.includes(stage)}
+            />
           </>
         )}
 
@@ -495,6 +501,7 @@ export default function DashboardPage() {
           onPartsHold={partsHold}
           onEdit={() => openEdit(liveSelected)}
           onApplyAction={applyAction}
+          onReject={rejectVehicle}
         />
       )}
       {liveEditing && (
