@@ -4,26 +4,40 @@ export const ROLES = {
     canAddVehicles: true,
     canApprove: true,
     canMoveAnyStage: true,
+    canEditAnyField: true,
+    canImport: true,
+    canReject: true,
     canSeeFullPipeline: true,
   },
   recon_manager: {
     canAddVehicles: true,
     canApprove: true,
     canMoveAnyStage: true,
+    canEditAnyField: true,
+    canImport: true,
+    canReject: true,
     canSeeFullPipeline: true,
   },
   service: {
     canAddVehicles: false,
     canApprove: false,
     canMoveAnyStage: false,
+    canEditAnyField: false,
+    canImport: false,
+    canReject: false,
     allowedStages: ['service_queue', 'service', 'parts_hold'],
+    editableFields: ['cost_mechanical', 'cost_parts', 'engine', 'transmission'],
     canSeeFullPipeline: true,
   },
   detail: {
     canAddVehicles: false,
     canApprove: false,
     canMoveAnyStage: false,
+    canEditAnyField: false,
+    canImport: false,
+    canReject: false,
     allowedStages: ['detail'],
+    editableFields: ['cost_detail'],
     canSeeFullPipeline: true,
   },
 }
@@ -73,6 +87,74 @@ export const SERVICE_LOCATIONS = {
   honda: { name: 'Honda Service', label: 'Honda (Imports)' },
 }
 
+// ---------------------------------------------------------------------------
+// Brand classification
+//   domestic  -> GMC shop
+//   import    -> Honda shop
+//   high_end  -> do not recondition (flag + reject)
+// ---------------------------------------------------------------------------
+export const BRAND_CLASS = {
+  // GM family (domestic)
+  gmc: 'domestic', chevrolet: 'domestic', chevy: 'domestic', buick: 'domestic',
+  cadillac: 'domestic', oldsmobile: 'domestic', pontiac: 'domestic',
+  saturn: 'domestic', hummer: 'domestic',
+  // Ford / Lincoln
+  ford: 'domestic', lincoln: 'domestic', mercury: 'domestic',
+  // Stellantis / Chrysler
+  chrysler: 'domestic', dodge: 'domestic', jeep: 'domestic', ram: 'domestic',
+  plymouth: 'domestic',
+  // Tesla / Rivian (US-built, go to GMC shop)
+  tesla: 'domestic', rivian: 'domestic',
+
+  // Japanese / Korean imports
+  honda: 'import', acura: 'import', toyota: 'import', lexus: 'import',
+  nissan: 'import', infiniti: 'import', mazda: 'import', subaru: 'import',
+  mitsubishi: 'import', suzuki: 'import', scion: 'import',
+  hyundai: 'import', kia: 'import', genesis: 'import',
+  // VW group non-premium
+  volkswagen: 'import', vw: 'import',
+  // MINI (treat as standard import service)
+  mini: 'import',
+  // Fiat
+  fiat: 'import', alfa: 'import', 'alfa romeo': 'import',
+
+  // High-end brands we DO NOT recondition
+  audi: 'high_end', bmw: 'high_end', mercedes: 'high_end',
+  'mercedes-benz': 'high_end', volvo: 'high_end',
+  'range rover': 'high_end', 'land rover': 'high_end',
+  jaguar: 'high_end', porsche: 'high_end', maserati: 'high_end',
+  bentley: 'high_end', ferrari: 'high_end', lamborghini: 'high_end',
+  'rolls-royce': 'high_end', 'rolls royce': 'high_end',
+  'aston martin': 'high_end', 'aston-martin': 'high_end',
+  mclaren: 'high_end', lotus: 'high_end', smart: 'high_end',
+  saab: 'high_end',
+}
+
+// Human-readable list of brands we refuse
+export const HIGH_END_BRANDS = Object.entries(BRAND_CLASS)
+  .filter(([, c]) => c === 'high_end')
+  .map(([k]) => k)
+
+// Acquisition sources
+export const ACQUISITION_SOURCES = {
+  trade: 'Trade-In',
+  auction: 'Auction',
+  lease_return: 'Lease Return',
+  purchase: 'Street Purchase',
+  dealer_transfer: 'Dealer Transfer',
+  wholesale: 'Wholesale Buy',
+  other: 'Other',
+}
+
+// Recon cost categories (used for breakdown in edit modal + analytics)
+export const COST_CATEGORIES = [
+  { id: 'cost_mechanical', label: 'Mechanical', icon: '🛠️', color: '#6366f1' },
+  { id: 'cost_body', label: 'Body / PDR', icon: '🔨', color: '#f59e0b' },
+  { id: 'cost_detail', label: 'Detail', icon: '✨', color: '#22c55e' },
+  { id: 'cost_parts', label: 'Parts', icon: '📦', color: '#3b82f6' },
+  { id: 'cost_vendor', label: 'Vendor', icon: '🚐', color: '#8b5cf6' },
+]
+
 // Approval thresholds
 export const APPROVAL_THRESHOLDS = [
   { max: 1200, approvers: [], label: 'Auto-Approved' },
@@ -85,6 +167,9 @@ export const APPROVAL_THRESHOLDS = [
 // Daily holding cost
 export const HOLDING_COST_PER_DAY = 32
 
+// Target frontline turnaround (days from stock-in)
+export const TARGET_FRONTLINE_DAYS = 5
+
 // Final inspection checklist items
 export const INSPECTION_CHECKLIST = [
   { id: 'exteriorClean', label: 'Exterior Clean' },
@@ -93,6 +178,17 @@ export const INSPECTION_CHECKLIST = [
   { id: 'keyFobsWorking', label: 'Key Fobs Working' },
   { id: 'floorMats', label: 'Floor Mats In Place' },
   { id: 'gasLevel', label: 'Gas Level Acceptable' },
-  { id: 'ownerManual', label: 'Owner\'s Manual Present' },
+  { id: 'ownerManual', label: "Owner's Manual Present" },
   { id: 'secondKey', label: 'Second Key (if applicable)' },
+]
+
+// Fields that get written to the audit log when edited
+export const AUDITED_FIELDS = [
+  'stock_number', 'year', 'make', 'model', 'trim', 'vin', 'mileage',
+  'exterior_color', 'interior_color', 'grade', 'service_location',
+  'estimated_cost', 'actual_cost', 'cost_mechanical', 'cost_body',
+  'cost_detail', 'cost_parts', 'cost_vendor', 'priority', 'decision',
+  'acquisition_source', 'acquisition_date', 'purchase_price',
+  'asking_price', 'target_frontline_date', 'is_rejected', 'reject_reason',
+  'engine', 'transmission', 'drivetrain', 'fuel_type', 'body_style',
 ]
