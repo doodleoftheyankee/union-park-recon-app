@@ -50,20 +50,15 @@ export const GRADES = {
   D: { label: 'Grade D', maxCost: 9999, color: '#ef4444', desc: '$1,700+' },
 }
 
-// Workflow stages
-// "Trade Decision" used to live here as a separate stage but was removed;
-// wholesale flagging is now handled via the is_rejected + reject_reason
-// fields instead so the pipeline column doesn't go dark on you.
+// Workflow stages — kept intentionally short.
+// All the legacy fine-grained stages (appraisal, service_queue, parts_hold,
+// approval, vendor, inspection) collapse into in_service or detail and are
+// represented as notes / bills on the card instead of separate columns.
 export const STAGES = [
-  { id: 'appraisal', name: 'Appraisal', icon: '📋', maxDays: 1 },
-  { id: 'service_queue', name: 'Service Queue', icon: '🔧', maxDays: 1 },
-  { id: 'service', name: 'In Service', icon: '🛠️', maxDays: 2 },
-  { id: 'parts_hold', name: 'Parts Hold', icon: '📦', maxDays: 3 },
-  { id: 'approval', name: 'Approval Needed', icon: '✋', maxDays: 1 },
-  { id: 'vendor', name: 'Vendor Work', icon: '🚐', maxDays: 2 },
-  { id: 'detail', name: 'Detail', icon: '✨', maxDays: 1 },
-  { id: 'inspection', name: 'Final Inspection', icon: '🔍', maxDays: 1 },
-  { id: 'frontline', name: 'Frontline Ready', icon: '🏁', maxDays: null },
+  { id: 'stock_in',  name: 'Stock In',   icon: '📋', maxDays: 1 },
+  { id: 'in_service', name: 'In Service', icon: '🛠️', maxDays: 3 },
+  { id: 'detail',    name: 'Detail',     icon: '✨', maxDays: 1 },
+  { id: 'frontline', name: 'Frontline',  icon: '🏁', maxDays: null },
 ]
 
 // Priority flags
