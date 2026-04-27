@@ -12,7 +12,6 @@ import { exportCsv } from '@/lib/inventory'
 import { s } from './styles'
 import PipelineView from './PipelineView'
 import InventoryView from './InventoryView'
-import AnalyticsView from './AnalyticsView'
 import AddModal from './AddModal'
 import EditModal from './EditModal'
 import DetailModal from './DetailModal'
@@ -21,7 +20,6 @@ import ImportModal from './ImportModal'
 const TABS = [
   { id: 'pipeline', label: '📊 Pipeline' },
   { id: 'inventory', label: '🚗 Inventory' },
-  { id: 'analytics', label: '📈 Analytics' },
 ]
 
 export default function DashboardPage() {
@@ -225,7 +223,7 @@ export default function DashboardPage() {
     if (error) { notify(`Error: ${error.message}`, 'error'); return }
 
     await supabase.from('stage_history').insert({
-      vehicle_id: data.id, stage: 'appraisal',
+      vehicle_id: data.id, stage: 'stock_in',
       moved_by_id: user.id, moved_by_name: profile.full_name,
     })
     if (initialNote) await addNote(data.id, initialNote, 'note')
@@ -331,23 +329,6 @@ export default function DashboardPage() {
     notify(`Moved ${vehicleIds.length} vehicle${vehicleIds.length === 1 ? '' : 's'} to ${STAGES.find((s) => s.id === newStage)?.name}`, 'success')
   }
 
-  const partsHold = async (vehicleId, parts) => {
-    await supabase.from('parts_holds').insert({
-      vehicle_id: vehicleId,
-      part_name: parts.partName,
-      part_number: parts.partNumber,
-      supplier: parts.supplier,
-      expected_at: new Date(Date.now() + parts.days * 86400000).toISOString(),
-      ordered_by_id: user.id, ordered_by_name: profile.full_name,
-    })
-    await moveVehicle(vehicleId, 'parts_hold', `Waiting: ${parts.partName}`)
-  }
-
-  // Apply an intelligence-recommended action
-  const applyAction = async (vehicleId, action) => {
-    if (action.payload) await updateVehicle(vehicleId, action.payload)
-  }
-
   // Bulk import
   const importVehicles = async (rows, fileName, onProgress) => {
     let created = 0, updated = 0, rejected = 0, errors = 0
@@ -396,7 +377,7 @@ export default function DashboardPage() {
           seenStocks.get(clean.stock_number) ||
           vehicles.find((v) => v.stock_number === clean.stock_number || (clean.vin && v.vin === clean.vin))
 
-        const payload = { stage: 'appraisal', priority: 'none', vendors: [], ...clean }
+        const payload = { stage: 'stock_in', priority: 'none', vendors: [], ...clean }
 
         if (existing) {
           const { error } = await supabase
@@ -415,7 +396,7 @@ export default function DashboardPage() {
           if (error) throw error
           await supabase.from('stage_history').insert({
             vehicle_id: data.id,
-            stage: 'appraisal',
+            stage: 'stock_in',
             moved_by_id: user.id,
             moved_by_name: profile.full_name,
           })
@@ -541,12 +522,9 @@ export default function DashboardPage() {
         {tab === 'pipeline' && (
           <>
             <div style={s.grid}>
-              <div style={s.stat(false)}><div style={s.statLabel}>Pipeline</div><div style={s.statVal}>{vehicles.filter((v) => v.stage !== 'frontline' && !v.is_rejected).length}</div></div>
+              <div style={s.stat(false)}><div style={s.statLabel}>In Recon</div><div style={s.statVal}>{vehicles.filter((v) => v.stage !== 'frontline' && !v.is_rejected).length}</div></div>
               <div style={s.stat(false)}><div style={s.statLabel}>Frontline</div><div style={{ ...s.statVal, color: '#22c55e' }}>{vehicles.filter((v) => v.stage === 'frontline').length}</div></div>
-              <div style={s.stat(getStageCount('approval') > 0)}><div style={s.statLabel}>Approval</div><div style={{ ...s.statVal, color: getStageCount('approval') > 0 ? '#f59e0b' : '#22c55e' }}>{getStageCount('approval')}</div></div>
-              <div style={s.stat(getStageCount('parts_hold') > 0)}><div style={s.statLabel}>Parts Hold</div><div style={{ ...s.statVal, color: getStageCount('parts_hold') > 0 ? '#3b82f6' : '#22c55e' }}>{getStageCount('parts_hold')}</div></div>
               <div style={s.stat(agingAlerts.length > 0)}><div style={s.statLabel}>Overdue</div><div style={{ ...s.statVal, color: agingAlerts.length > 0 ? '#ef4444' : '#22c55e' }}>{agingAlerts.length}</div></div>
-              <div style={s.stat(false)}><div style={s.statLabel}>Total Est. $</div><div style={s.statVal}>{formatMoney(vehicles.filter((v) => v.stage !== 'frontline').reduce((a, v) => a + (Number(v.estimated_cost) || 0), 0))}</div></div>
             </div>
             <PipelineView
               vehicles={vehicles}
@@ -569,7 +547,6 @@ export default function DashboardPage() {
           />
         )}
 
-        {tab === 'analytics' && <AnalyticsView vehicles={vehicles} />}
       </main>
 
       {showAddModal && <AddModal onClose={() => setShowAddModal(false)} onAdd={addVehicle} />}
@@ -587,9 +564,7 @@ export default function DashboardPage() {
           onAddNote={addNote}
           onMoveStage={moveVehicle}
           onSetPriority={setPriority}
-          onPartsHold={partsHold}
           onEdit={() => openEdit(liveSelected)}
-          onApplyAction={applyAction}
           onReject={rejectVehicle}
           onAddBill={addBill}
           onDeleteBill={deleteBill}

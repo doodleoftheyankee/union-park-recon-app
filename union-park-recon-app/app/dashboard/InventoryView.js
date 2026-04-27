@@ -104,7 +104,7 @@ export default function InventoryView({ vehicles, onOpen, onEdit, onExport, canE
         {canEdit && selected.size > 0 && (
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
             <span style={{ fontSize: 11, color: '#94a3b8' }}>Bulk move to:</span>
-            {['appraisal', 'service_queue', 'service', 'detail', 'inspection', 'frontline'].map((st) => {
+            {STAGES.map((s) => s.id).map((st) => {
               const stage = STAGES.find((x) => x.id === st)
               return (
                 <button
