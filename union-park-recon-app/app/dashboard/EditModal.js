@@ -3,6 +3,8 @@
 import { useState } from 'react'
 import { s } from './styles'
 import { GRADES, ACQUISITION_SOURCES, COST_CATEGORIES } from '@/lib/constants'
+import { estimateReconCosts } from '@/lib/intelligence'
+import { formatMoney } from '@/lib/utils'
 
 // Editable fields grouped by section for a clean UI
 const SECTIONS = [
@@ -67,6 +69,24 @@ export default function EditModal({ vehicle, onClose, onSave, onDelete, onReject
 
   const set = (k, v) => setForm((p) => ({ ...p, [k]: v }))
 
+  const applySuggestedEstimate = () => {
+    const est = estimateReconCosts({
+      grade: form.grade,
+      mileage: form.mileage,
+      year: form.year,
+      total: Number(form.estimated_cost) || undefined,
+    })
+    setForm((p) => ({
+      ...p,
+      cost_mechanical: est.cost_mechanical,
+      cost_body: est.cost_body,
+      cost_detail: est.cost_detail,
+      cost_parts: est.cost_parts,
+      cost_vendor: est.cost_vendor,
+      estimated_cost: Number(p.estimated_cost) || est.estimated_cost,
+    }))
+  }
+
   const handleSave = async () => {
     setSaving(true)
     await onSave(form)
@@ -116,7 +136,19 @@ export default function EditModal({ vehicle, onClose, onSave, onDelete, onReject
 
           {SECTIONS.map((section) => (
             <div key={section.title} style={{ marginBottom: 20 }}>
-              <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.5px', color: '#f59e0b', fontWeight: 700, marginBottom: 8 }}>{section.title}</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.5px', color: '#f59e0b', fontWeight: 700 }}>{section.title}</div>
+                {section.title === 'Recon Budget' && (
+                  <button
+                    type="button"
+                    onClick={applySuggestedEstimate}
+                    style={{ padding: '4px 10px', background: 'rgba(59,130,246,0.2)', border: '1px solid #3b82f6', borderRadius: 4, color: 'white', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
+                    title="Fill category estimates based on grade, mileage, and year"
+                  >
+                    💡 Suggest ({formatMoney(estimateReconCosts({ grade: form.grade, mileage: form.mileage, year: form.year, total: Number(form.estimated_cost) || undefined }).estimated_cost)})
+                  </button>
+                )}
+              </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
                 {section.fields.map((f) => (
                   <div key={f.key} style={s.formGroup}>
