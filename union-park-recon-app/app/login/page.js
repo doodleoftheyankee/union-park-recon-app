@@ -158,6 +158,16 @@ export default function LoginPage() {
           </button>
         </form>
 
+        <div style={{ marginTop: 24, paddingTop: 20, borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+          <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.5px', color: '#64748b', textAlign: 'center', marginBottom: 12 }}>
+            View without signing in
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <a href="/board" style={{ display: 'block', padding: '10px 12px', background: 'rgba(34,197,94,0.15)', border: '1px solid #22c55e', borderRadius: 6, color: 'white', fontSize: 13, fontWeight: 600, textAlign: 'center', textDecoration: 'none' }}>📺 TV Board</a>
+            <a href="/sales" style={{ display: 'block', padding: '10px 12px', background: 'rgba(59,130,246,0.15)', border: '1px solid #3b82f6', borderRadius: 6, color: 'white', fontSize: 13, fontWeight: 600, textAlign: 'center', textDecoration: 'none' }}>🚗 Sales View</a>
+          </div>
+        </div>
+
         <div style={styles.footer}>
           Contact admin if you need an account
         </div>

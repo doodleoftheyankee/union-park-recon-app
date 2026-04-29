@@ -506,8 +506,10 @@ export default function DashboardPage() {
               </div>
             )}
           </div>
-          {permissions.canImport && <button style={s.btn('import')} onClick={() => setShowImportModal(true)}>📥 Import</button>}
-          {permissions.canAddVehicles && <button style={s.btn('add')} onClick={() => setShowAddModal(true)}>+ Add</button>}
+          {permissions.canImport && <button style={s.btn('import')} onClick={() => setShowImportModal(true)}>📥 Daily Import</button>}
+          {permissions.canAddVehicles && <button style={s.btn('add')} onClick={() => setShowAddModal(true)}>+ Add Car</button>}
+          <a href="/board" target="_blank" rel="noopener noreferrer" style={{ ...s.btn(), textDecoration: 'none' }}>📺 TV</a>
+          <a href="/sales" target="_blank" rel="noopener noreferrer" style={{ ...s.btn(), textDecoration: 'none' }}>🚗 Sales</a>
           <button style={s.btn()} onClick={handleLogout}>Logout</button>
         </div>
       </header>
