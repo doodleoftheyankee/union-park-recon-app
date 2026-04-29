@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase'
 import { STAGES } from '@/lib/constants'
-import { getTotalDays, formatMoney, formatShortDate } from '@/lib/utils'
+import { getTotalDays } from '@/lib/utils'
 
 // Public sales-floor view — no login. Auto-refreshes every minute.
 // Shows just the data sales actually cares about: what's the car, how
@@ -103,7 +103,7 @@ export default function SalesPage() {
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
           <thead>
             <tr>
-              {['Stock #', 'Vehicle', 'Color', 'Miles', 'Stage', 'Days Here', 'Ready In'].map((h) => (
+              {['Stock #', 'Vehicle', 'Color', 'Miles', 'Shop', 'Stage', 'Days Here', 'Ready In'].map((h) => (
                 <th key={h} style={{
                   padding: '12px 14px', textAlign: 'left',
                   background: 'rgba(15,23,42,0.6)', color: '#94a3b8',
@@ -127,6 +127,13 @@ export default function SalesPage() {
                   </td>
                   <td style={td}>{v.exterior_color || '—'}</td>
                   <td style={td}>{v.mileage ? v.mileage.toLocaleString() : '—'}</td>
+                  <td style={td}>
+                    {v.service_location === 'gmc' ? (
+                      <span style={{ padding: '2px 8px', background: 'rgba(220,38,38,0.2)', border: '1px solid #dc2626', borderRadius: 4, fontSize: 11, fontWeight: 700 }}>GMC</span>
+                    ) : v.service_location === 'honda' ? (
+                      <span style={{ padding: '2px 8px', background: 'rgba(59,130,246,0.2)', border: '1px solid #3b82f6', borderRadius: 4, fontSize: 11, fontWeight: 700 }}>HONDA</span>
+                    ) : '—'}
+                  </td>
                   <td style={td}>{stage ? `${stage.icon} ${stage.name}` : v.stage}</td>
                   <td style={td}>{days}d</td>
                   <td style={{ ...td, fontWeight: 700, color: isReady ? '#22c55e' : '#f1f5f9' }}>
@@ -137,7 +144,7 @@ export default function SalesPage() {
             })}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={7} style={{ padding: 24, textAlign: 'center', color: '#64748b' }}>
+                <td colSpan={8} style={{ padding: 24, textAlign: 'center', color: '#64748b' }}>
                   No vehicles match
                 </td>
               </tr>
