@@ -1,9 +1,11 @@
 // -----------------------------------------------------------------------------
 // CSV inventory import
 //
-// Dealership DMS exports (vAuto, HomeNet, Cox, Dealertrack, etc.) all use
-// different column names. We auto-map common header variants into our schema,
-// then let the user confirm and edit in a preview grid before committing.
+// Dealership DMS exports (Reynolds, vAuto, HomeNet, Cox, Dealertrack, etc.)
+// all use different column names and shapes. We auto-map common header
+// variants into our schema, post-process the rows for things like the
+// combined "Vehicle" column on Reynolds exports, then let the user confirm
+// in a preview grid before committing.
 // -----------------------------------------------------------------------------
 
 import { enrichVehicle } from './intelligence'
@@ -11,13 +13,13 @@ import { enrichVehicle } from './intelligence'
 // Map of canonical field -> accepted aliases (all normalized to lowercase,
 // non-alphanumeric stripped).
 const COLUMN_ALIASES = {
-  stock_number: ['stock', 'stockno', 'stocknumber', 'stock#', 'inventoryid', 'invno'],
+  stock_number: ['stock', 'stockno', 'stocknumber', 'stocknum', 'stockid', 'inventoryid', 'invno'],
   vin: ['vin', 'vinnumber', 'fullvin'],
   year: ['year', 'modelyear', 'yr'],
   make: ['make', 'manufacturer', 'brand'],
   model: ['model', 'modelname'],
   trim: ['trim', 'trimlevel', 'series'],
-  body_style: ['body', 'bodystyle', 'bodytype'],
+  body_style: ['body', 'bodystyle', 'bodytype', 'vehiclecategory', 'category'],
   exterior_color: ['exteriorcolor', 'extcolor', 'color', 'exterior'],
   interior_color: ['interiorcolor', 'intcolor', 'interior'],
   mileage: ['mileage', 'miles', 'odometer', 'odo'],
@@ -25,16 +27,19 @@ const COLUMN_ALIASES = {
   fuel_type: ['fuel', 'fueltype'],
   transmission: ['transmission', 'trans'],
   engine: ['engine', 'enginedesc'],
-  acquisition_source: ['source', 'acquisitionsource', 'acquiredfrom'],
+  acquisition_source: ['source', 'acquisitionsource', 'acquiredfrom', 'stocktype'],
   acquisition_date: ['acquired', 'acquisitiondate', 'dateacquired', 'stockindate', 'datein'],
   purchase_price: ['purchaseprice', 'cost', 'acv', 'bookvalue'],
-  asking_price: ['price', 'askingprice', 'listprice', 'retailprice'],
+  asking_price: ['price', 'askingprice', 'listprice', 'retailprice', 'publishedprice', 'internetprice', 'msrp'],
   external_id: ['id', 'externalid', 'dmsid'],
+  // Special: combined make/model/trim column. Post-processed after parse.
+  __vehicle: ['vehicle', 'description'],
+  // Special: days-in-stock. Post-processed into acquisition_date.
+  __age_days: ['age', 'daysinstock', 'daysinventory', 'days'],
 }
 
 const normKey = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '')
 
-// Build reverse lookup: { normalizedHeader: canonicalField }
 function buildHeaderMap(headers) {
   const map = {}
   const aliasIndex = {}
@@ -75,6 +80,46 @@ export function parseCsv(text) {
   return rows.filter((r) => r.some((c) => c && c.trim().length))
 }
 
+// Split a combined "Make Model Trim..." string into 3 fields. We take the
+// first whitespace-separated word as the make, the second as the model, and
+// the rest as the trim. Works cleanly for every brand on Union Park's lot
+// since none are 2-word makes (Honda, GMC, Buick, Chevrolet, Toyota, etc.).
+function splitVehicleString(combined) {
+  if (!combined) return null
+  const parts = String(combined).trim().split(/\s+/)
+  if (parts.length < 2) return null
+  return {
+    make: parts[0],
+    model: parts[1],
+    trim: parts.length > 2 ? parts.slice(2).join(' ') : null,
+  }
+}
+
+// After cell-level parsing, do row-level fixups.
+function postProcessRow(raw) {
+  if (raw.__vehicle && (!raw.make || !raw.model)) {
+    const split = splitVehicleString(raw.__vehicle)
+    if (split) {
+      raw.make ||= split.make
+      raw.model ||= split.model
+      raw.trim ||= split.trim
+    }
+  }
+  delete raw.__vehicle
+
+  if (raw.__age_days != null && !raw.acquisition_date) {
+    const days = parseInt(String(raw.__age_days).replace(/[^0-9]/g, ''), 10)
+    if (!Number.isNaN(days) && days >= 0) {
+      const d = new Date()
+      d.setDate(d.getDate() - days)
+      raw.acquisition_date = d.toISOString().slice(0, 10)
+    }
+  }
+  delete raw.__age_days
+
+  return raw
+}
+
 // Turn CSV text into an array of normalized, enriched vehicle objects.
 export function importCsv(text) {
   const rows = parseCsv(text)
@@ -83,7 +128,7 @@ export function importCsv(text) {
   const headerMap = buildHeaderMap(headers)
   const unmapped = headers
     .map((h, i) => (headerMap[i] ? null : h))
-    .filter(Boolean)
+    .filter((h) => h && h.trim().length)
 
   const vehicles = rows.slice(1).map((r) => {
     const raw = {}
@@ -101,8 +146,9 @@ export function importCsv(text) {
       }
       raw[field] = value
     })
+    postProcessRow(raw)
     return enrichVehicle(raw)
-  }).filter((v) => v.stock_number || v.vin) // discard blanks
+  }).filter((v) => v.stock_number && v.make && v.model)
 
   return { headers, headerMap, vehicles, unmapped }
 }
