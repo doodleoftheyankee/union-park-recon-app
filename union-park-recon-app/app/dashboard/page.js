@@ -363,6 +363,20 @@ export default function DashboardPage() {
       return clean
     }
 
+    // Fields that are safe to refresh from the daily DMS export. Anything
+    // not in this list (stage, priority, is_rejected, bills, notes, etc.) is
+    // never touched by re-imports — that's the user's workflow state and the
+    // import has no opinion on it.
+    const UPDATE_SAFE_FIELDS = new Set([
+      'year', 'make', 'model', 'trim', 'body_style', 'vin',
+      'exterior_color', 'interior_color', 'mileage',
+      'drivetrain', 'fuel_type', 'transmission', 'engine',
+      'asking_price', 'purchase_price',
+      'acquisition_date', 'acquisition_source',
+      'origin_class', 'service_location', 'grade',
+      'estimated_cost', 'external_id',
+    ])
+
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i]
       try {
@@ -377,20 +391,31 @@ export default function DashboardPage() {
           seenStocks.get(clean.stock_number) ||
           vehicles.find((v) => v.stock_number === clean.stock_number || (clean.vin && v.vin === clean.vin))
 
-        const payload = { stage: 'stock_in', priority: 'none', vendors: [], ...clean }
-
         if (existing) {
+          // Re-import: only refresh identity / spec fields. Preserve stage,
+          // priority, is_rejected, vendors, costs, etc. so the manager's
+          // workflow state isn't trampled by Micah's daily upload.
+          const patch = { updated_at: new Date().toISOString() }
+          for (const k of Object.keys(clean)) {
+            if (UPDATE_SAFE_FIELDS.has(k)) patch[k] = clean[k]
+          }
           const { error } = await supabase
             .from('vehicles')
-            .update({ ...payload, updated_at: new Date().toISOString() })
+            .update(patch)
             .eq('id', existing.id)
           if (error) throw error
           seenStocks.set(clean.stock_number, existing)
           updated++
         } else {
+          // Brand-new car: full insert, default to stock_in.
+          const insertPayload = {
+            stage: 'stock_in', priority: 'none', vendors: [],
+            ...clean,
+            appraiser_id: user.id, appraiser_name: profile.full_name,
+          }
           const { data, error } = await supabase
             .from('vehicles')
-            .insert({ ...payload, appraiser_id: user.id, appraiser_name: profile.full_name })
+            .insert(insertPayload)
             .select()
             .single()
           if (error) throw error
