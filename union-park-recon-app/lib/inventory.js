@@ -204,6 +204,8 @@ function detectDelimiter(text) {
 // detects comma / semicolon / tab as the delimiter (some DMS exports and
 // European Excels use ; or \t).
 export function parseCsv(text, delimiter) {
+  if (text == null) return []
+  text = String(text)
   // Strip BOM if present (Excel exports often add one).
   if (text.charCodeAt(0) === 0xfeff) text = text.slice(1)
   const sep = delimiter || detectDelimiter(text)
@@ -337,28 +339,41 @@ function postProcessRow(raw) {
 //   vehicles - enriched vehicle objects, ready to render in the preview
 //   unmapped - header strings that didn't get assigned to any field
 //   dropped  - count of rows skipped because they had no stock_number
+//
+// One bad row (exotic unicode, weird date, whatever blows up enrichVehicle)
+// never kills the whole batch — we log it and skip it instead.
 export function buildVehiclesFromRows(headers, rows, headerMap) {
-  const unmapped = headers
-    .map((h, i) => ((i in headerMap) ? null : h))
-    .filter((h) => h && h.trim().length)
+  const safeHeaders = Array.isArray(headers) ? headers : []
+  const safeRows = Array.isArray(rows) ? rows : []
+  const safeMap = headerMap || {}
+
+  const unmapped = safeHeaders
+    .map((h, i) => ((i in safeMap) ? null : h))
+    .filter((h) => h && String(h).trim().length)
 
   let dropped = 0
-  const vehicles = rows.map((r) => {
-    const raw = {}
-    r.forEach((cell, i) => {
-      const field = headerMap[i]
-      if (!field) return
-      const v = coerceCell(field, cell)
-      if (v == null) return
-      raw[field] = v
-    })
-    postProcessRow(raw)
-    return enrichVehicle(raw)
-  }).filter((v) => {
-    const ok = REQUIRED_FIELDS.every((f) => v[f] != null && v[f] !== '')
-    if (!ok) dropped++
-    return ok
-  })
+  const vehicles = []
+  for (const r of safeRows) {
+    if (!Array.isArray(r)) { dropped++; continue }
+    try {
+      const raw = {}
+      r.forEach((cell, i) => {
+        const field = safeMap[i]
+        if (!field) return
+        const v = coerceCell(field, cell)
+        if (v == null) return
+        raw[field] = v
+      })
+      postProcessRow(raw)
+      const enriched = enrichVehicle(raw)
+      const ok = REQUIRED_FIELDS.every((f) => enriched[f] != null && enriched[f] !== '')
+      if (!ok) { dropped++; continue }
+      vehicles.push(enriched)
+    } catch (err) {
+      console.warn('CSV import: row skipped', err, r)
+      dropped++
+    }
+  }
 
   return { vehicles, unmapped, dropped }
 }

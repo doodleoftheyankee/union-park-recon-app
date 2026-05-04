@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useRef, useState } from 'react'
+import { Component, useMemo, useRef, useState } from 'react'
 import { s } from './styles'
 import {
   parseCsv, detectHeaderMap, buildVehiclesFromRows,
@@ -8,7 +8,40 @@ import {
 } from '@/lib/inventory'
 import { classifyBrand } from '@/lib/intelligence'
 
-export default function ImportModal({ onClose, onImport }) {
+// Last-resort guard. If anything inside the modal throws during render despite
+// the inline try/catches, this stops the failure from blowing up the whole
+// dashboard and gives the user the actual error string + a way out.
+class ImportErrorBoundary extends Component {
+  constructor(props) { super(props); this.state = { error: null } }
+  static getDerivedStateFromError(error) { return { error } }
+  componentDidCatch(error, info) { console.error('ImportModal render crashed', error, info) }
+  render() {
+    if (!this.state.error) return this.props.children
+    const msg = this.state.error?.message || String(this.state.error)
+    return (
+      <div style={s.modal} onClick={this.props.onClose}>
+        <div style={{ ...s.modalBox, maxWidth: 560 }} onClick={(e) => e.stopPropagation()}>
+          <div style={s.modalHead}>
+            <div style={s.modalTitle}>Import — unexpected error</div>
+            <button style={s.closeBtn} onClick={this.props.onClose}>×</button>
+          </div>
+          <div style={s.modalBody}>
+            <div style={{ padding: 10, marginBottom: 12, background: 'rgba(239,68,68,0.12)', border: '1px solid #ef4444', borderRadius: 6, color: '#fca5a5', fontSize: 12 }}>
+              <div style={{ fontWeight: 700, marginBottom: 4 }}>The import modal hit an error</div>
+              <div style={{ fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-word', marginBottom: 8 }}>{msg}</div>
+              <div style={{ color: '#94a3b8', fontSize: 11 }}>
+                Open DevTools → Console for the full stack, then send the message above to support.
+              </div>
+            </div>
+            <button style={s.submitBtn} onClick={this.props.onClose}>Close</button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+}
+
+function ImportModalInner({ onClose, onImport }) {
   // Stages: idle -> mapping -> review -> importing -> done
   const [stage, setStage] = useState('idle')
   const [fileName, setFileName] = useState(null)
@@ -21,12 +54,18 @@ export default function ImportModal({ onClose, onImport }) {
   const [progress, setProgress] = useState({ imported: 0, total: 0 })
   const [summary, setSummary] = useState(null)
   const [parseError, setParseError] = useState(null)
+  // Catches anything that throws while we're parsing / building the preview /
+  // running the import so the whole page doesn't error out. Surfaces the real
+  // message inline instead of letting it bubble up to the global Next.js
+  // "Application error" overlay.
+  const [runtimeError, setRuntimeError] = useState(null)
   const fileRef = useRef(null)
 
   const onFile = async (e) => {
     const file = e.target.files?.[0]
     if (!file) return
     setParseError(null)
+    setRuntimeError(null)
     try {
       const text = await file.text()
       const allRows = parseCsv(text)
@@ -44,6 +83,7 @@ export default function ImportModal({ onClose, onImport }) {
       setFileName(file.name)
       setStage('mapping')
     } catch (err) {
+      console.error('Import: file read / parse failed', err)
       setParseError(`Failed to read file: ${err?.message || err}`)
     } finally {
       // Reset the input so the same file can be re-picked after a reset
@@ -59,18 +99,29 @@ export default function ImportModal({ onClose, onImport }) {
   // remove buttons keep working after rows above them get removed. The
   // _idx field is dropped by the dashboard's column sanitizer before the
   // row hits the database.
+  //
+  // Wrapped in try/catch — a single bad row in the CSV (weird date, exotic
+  // unicode, whatever) shouldn't bring down the modal. We surface the error
+  // in the UI instead.
   const preview = useMemo(() => {
     if (!rows.length || !headers.length) return null
-    const built = buildVehiclesFromRows(headers, rows, headerMap)
-    const vehicles = built.vehicles
-      .map((v, i) => ({
-        ...v,
+    try {
+      const built = buildVehiclesFromRows(headers, rows, headerMap)
+      const vehicles = (built.vehicles || []).map((v, i) => ({
+        ...(v || {}),
         _idx: i,
-        is_rejected: rejectedIdx.has(i) ? true : v.is_rejected,
-        reject_reason: rejectedIdx.has(i) ? (v.reject_reason || 'Rejected during review') : v.reject_reason,
-      }))
-      .filter((v) => !removedIdx.has(v._idx))
-    return { ...built, vehicles }
+        is_rejected: rejectedIdx.has(i) ? true : (v && v.is_rejected),
+        reject_reason: rejectedIdx.has(i)
+          ? ((v && v.reject_reason) || 'Rejected during review')
+          : (v && v.reject_reason),
+      })).filter((v) => !removedIdx.has(v._idx))
+      return { ...built, vehicles }
+    } catch (err) {
+      console.error('Import: building preview failed', err, { headers, headerMap, rowCount: rows.length })
+      // Defer the state update so we don't setState during render.
+      Promise.resolve().then(() => setRuntimeError(`Couldn't build preview: ${err?.message || err}`))
+      return null
+    }
   }, [headers, rows, headerMap, rejectedIdx, removedIdx])
 
   const claimed = useMemo(() => new Set(Object.values(headerMap)), [headerMap])
@@ -91,7 +142,7 @@ export default function ImportModal({ onClose, onImport }) {
   }
 
   const counts = preview ? preview.vehicles.reduce((a, v) => {
-    const c = v.origin_class || classifyBrand(v.make)
+    const c = (v && v.origin_class) || classifyBrand(v && v.make)
     a[c] = (a[c] || 0) + 1
     return a
   }, {}) : {}
@@ -103,16 +154,28 @@ export default function ImportModal({ onClose, onImport }) {
 
   const handleImport = async () => {
     if (!preview) return
+    setRuntimeError(null)
     setStage('importing')
     setProgress({ imported: 0, total: preview.vehicles.length })
-    const sum = await onImport(preview.vehicles, fileName, (n) => setProgress((p) => ({ ...p, imported: n })))
-    setSummary(sum)
-    setStage('done')
+    try {
+      const sum = await onImport(
+        preview.vehicles,
+        fileName,
+        (n) => setProgress((p) => ({ ...p, imported: n })),
+      )
+      setSummary(sum || { created: 0, updated: 0, rejected: 0, errors: 0, errorDetails: [] })
+      setStage('done')
+    } catch (err) {
+      console.error('Import: onImport callback threw', err)
+      setRuntimeError(`Import failed: ${err?.message || err}`)
+      setStage('mapping')
+    }
   }
 
   const reset = () => {
     setStage('idle'); setFileName(null); setHeaders([]); setRows([])
     setHeaderMap({}); setModes({}); setSummary(null); setParseError(null)
+    setRuntimeError(null)
     setRejectedIdx(new Set()); setRemovedIdx(new Set())
   }
 
@@ -139,6 +202,19 @@ export default function ImportModal({ onClose, onImport }) {
         </div>
 
         <div style={s.modalBody}>
+          {runtimeError && (
+            <div style={{ padding: 10, marginBottom: 12, background: 'rgba(239,68,68,0.12)', border: '1px solid #ef4444', borderRadius: 6, color: '#fca5a5', fontSize: 12 }}>
+              <div style={{ fontWeight: 700, marginBottom: 4 }}>Something went wrong</div>
+              <div style={{ marginBottom: 6 }}>{runtimeError}</div>
+              <button
+                style={{ padding: '4px 10px', fontSize: 11, background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 4, color: 'white', cursor: 'pointer' }}
+                onClick={reset}
+              >
+                Start over
+              </button>
+            </div>
+          )}
+
           {stage === 'idle' && (
             <>
               <div style={{ fontSize: 13, color: '#94a3b8', marginBottom: 14 }}>
@@ -393,6 +469,14 @@ export default function ImportModal({ onClose, onImport }) {
         </div>
       </div>
     </div>
+  )
+}
+
+export default function ImportModal(props) {
+  return (
+    <ImportErrorBoundary onClose={props.onClose}>
+      <ImportModalInner {...props} />
+    </ImportErrorBoundary>
   )
 }
 
