@@ -115,7 +115,31 @@ export const MAPPABLE_FIELDS = [
 
 const REQUIRED_FIELDS = ['stock_number']
 
+// Headers like "Model #" or "VIN 6" carry an identifier number, NOT the
+// thing the field is supposedly named after. If the original header ends
+// with a `#` or trailing digit/space, we refuse to map it onto a "name"
+// field — those columns hold values like "Civic" or "CR-V", never "375274".
+// (`stock_number`, `vin`, `external_id` etc. are not in this set because
+// for those fields a number IS the value.)
+const NAME_FIELDS = new Set([
+  'make', 'model', 'trim', 'engine', 'transmission', 'drivetrain',
+  'fuel_type', 'body_style', 'exterior_color', 'interior_color',
+  'acquisition_source',
+])
+
 const normKey = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '')
+
+// Trailing `#`, `no`, `number`, or a trailing standalone digit signals
+// "this is an identifier" — e.g. "Model #", "Photo No", "VIN 6".
+const HEADER_LOOKS_LIKE_ID = (header) => {
+  if (!header) return false
+  const trimmed = String(header).trim().toLowerCase()
+  if (trimmed.endsWith('#')) return true
+  if (/\b(no|number|num|id)\.?$/.test(trimmed)) return true
+  // "VIN 6" -> trailing standalone digit
+  if (/\s\d+$/.test(trimmed)) return true
+  return false
+}
 
 // Build alias index once. exactIndex maps normKey(alias) -> canonical.
 const ALIAS_EXACT = {}
@@ -138,12 +162,23 @@ ALIAS_LIST.sort((a, b) => b.len - a.len)
 // Fuzzy matching is bidirectional: a header like "Asking" matches the
 // "askingprice" alias because one contains the other. This handles the
 // common case of dealers shortening their column names.
+//
+// We refuse to map "ID-shaped" headers (anything ending in #, "No", a
+// trailing digit, etc.) onto NAME_FIELDS — that's how Reynolds gets
+// "Model #" mapped to `model` and clobbers the actual model name with
+// a part-number.
 export function detectField(header) {
   const k = normKey(header)
   if (!k) return null
-  if (ALIAS_EXACT[k]) return { canonical: ALIAS_EXACT[k], mode: 'exact' }
+  const idShaped = HEADER_LOOKS_LIKE_ID(header)
+  if (ALIAS_EXACT[k]) {
+    const canonical = ALIAS_EXACT[k]
+    if (idShaped && NAME_FIELDS.has(canonical)) return null
+    return { canonical, mode: 'exact' }
+  }
   for (const { key, canonical } of ALIAS_LIST) {
     if (key.length < 3 || k.length < 3) continue // avoid noise like "yr"
+    if (idShaped && NAME_FIELDS.has(canonical)) continue
     if (k.includes(key) || key.includes(k)) return { canonical, mode: 'fuzzy' }
   }
   return null

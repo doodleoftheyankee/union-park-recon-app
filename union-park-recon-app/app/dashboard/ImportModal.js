@@ -81,7 +81,20 @@ function ImportModalInner({ onClose, onImport }) {
       setHeaderMap(detection.byIndex)
       setModes(detection.modes)
       setFileName(file.name)
-      setStage('mapping')
+
+      // If everything important auto-detected with exact matches, skip the
+      // mapping step and go straight to the preview — that's the old flow
+      // most users expect. The mapping screen is only useful when something
+      // didn't auto-resolve, in which case we still fall through to it.
+      const fields = Object.values(detection.byIndex)
+      const hasStock = fields.includes('stock_number')
+      const hasVehicle = fields.includes('__vehicle') ||
+        (fields.includes('make') && fields.includes('model'))
+      const requiredAreExact = Object.entries(detection.byIndex)
+        .filter(([, f]) => ['stock_number', 'make', 'model', '__vehicle'].includes(f))
+        .every(([i]) => detection.modes[i] === 'exact')
+
+      setStage(hasStock && hasVehicle && requiredAreExact ? 'review' : 'mapping')
     } catch (err) {
       console.error('Import: file read / parse failed', err)
       setParseError(`Failed to read file: ${err?.message || err}`)
