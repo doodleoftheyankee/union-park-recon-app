@@ -8,6 +8,7 @@
 // (and override) the mapping in a preview grid before committing.
 //
 // Public surface:
+//   decodeFileBytes(arrayBuffer)              -> string (encoding-aware)
 //   parseCsv(text)                            -> raw 2D string array
 //   detectHeaderMap(headers)                  -> { byIndex, fuzzyByIndex }
 //   buildVehiclesFromRows(headers, rows, map) -> { vehicles, unmapped }
@@ -16,6 +17,57 @@
 // -----------------------------------------------------------------------------
 
 import { enrichVehicle } from './intelligence'
+
+// Decode raw file bytes into a string with the right encoding. DMS / Excel
+// exports on Windows are notoriously inconsistent — the same dealership tool
+// might emit UTF-8, UTF-16LE (Excel "Unicode Text"), or Windows-1252 (legacy
+// ANSI) depending on how the operator clicked through "Save As". File.text()
+// always assumes UTF-8, so anything else comes through as garbled symbols
+// (`â€™`, `��`, replacement boxes) and downstream number parsing fails.
+//
+// Strategy:
+//   1. BOM sniff for UTF-8 / UTF-16LE / UTF-16BE.
+//   2. BOM-less UTF-16 heuristic: a CSV in UTF-16LE has 0x00 in every odd
+//      byte position (high byte of ASCII chars), and vice versa for BE.
+//   3. Try strict UTF-8; on invalid byte sequences fall back to Windows-1252,
+//      which is a superset of Latin-1 and decodes any byte value successfully.
+export function decodeFileBytes(buf) {
+  if (!buf) return ''
+  const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf)
+  if (bytes.length === 0) return ''
+
+  if (bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
+    return new TextDecoder('utf-8').decode(bytes)
+  }
+  if (bytes.length >= 2 && bytes[0] === 0xff && bytes[1] === 0xfe) {
+    return new TextDecoder('utf-16le').decode(bytes)
+  }
+  if (bytes.length >= 2 && bytes[0] === 0xfe && bytes[1] === 0xff) {
+    return new TextDecoder('utf-16be').decode(bytes)
+  }
+
+  const sample = bytes.subarray(0, Math.min(bytes.length, 512))
+  let evenZeros = 0
+  let oddZeros = 0
+  for (let i = 0; i < sample.length; i++) {
+    if (sample[i] !== 0) continue
+    if (i % 2 === 0) evenZeros++
+    else oddZeros++
+  }
+  const threshold = Math.floor(sample.length / 4)
+  if (oddZeros > threshold && oddZeros > evenZeros * 4) {
+    return new TextDecoder('utf-16le').decode(bytes)
+  }
+  if (evenZeros > threshold && evenZeros > oddZeros * 4) {
+    return new TextDecoder('utf-16be').decode(bytes)
+  }
+
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+  } catch {
+    return new TextDecoder('windows-1252').decode(bytes)
+  }
+}
 
 // Map of canonical field -> accepted aliases (all normalized to lowercase,
 // non-alphanumeric stripped). Aliases are checked exactly first; if no exact
