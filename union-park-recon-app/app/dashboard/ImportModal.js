@@ -3,7 +3,7 @@
 import { Component, useMemo, useRef, useState } from 'react'
 import { s } from './styles'
 import {
-  parseCsv, detectHeaderMap, buildVehiclesFromRows,
+  parseCsv, detectHeaderMap, buildVehiclesFromRows, decodeFileBytes,
   FIELD_LABELS, MAPPABLE_FIELDS,
 } from '@/lib/inventory'
 import { classifyBrand } from '@/lib/intelligence'
@@ -67,7 +67,7 @@ function ImportModalInner({ onClose, onImport }) {
     setParseError(null)
     setRuntimeError(null)
     try {
-      const text = await file.text()
+      const text = decodeFileBytes(await file.arrayBuffer())
       const allRows = parseCsv(text)
       if (allRows.length < 2) {
         setParseError(`Couldn't read this CSV — only found ${allRows.length} row${allRows.length === 1 ? '' : 's'}. Make sure it has a header row plus at least one vehicle.`)
