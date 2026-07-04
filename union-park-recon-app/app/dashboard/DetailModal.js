@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { s } from './styles'
 import { STAGES, PRIORITY_FLAGS, BILL_SHOPS, BILL_CATEGORIES, SHOP_DEFAULT_CATEGORY } from '@/lib/constants'
 import {
-  getTotalDays, getHoldingCost, isStageOverdue, formatTimeAgo, formatMoney,
+  getTotalDays, getHoldingCost, getReconDays, isStageOverdue, formatTimeAgo, formatMoney,
 } from '@/lib/utils'
 
 export default function DetailModal({
@@ -144,8 +144,9 @@ export default function DetailModal({
         </div>
 
         {/* Cost summary */}
-        <div style={{ padding: '12px 18px', background: 'rgba(15,23,42,0.5)', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, textAlign: 'center', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
-          <div><div style={s.costLabel}>Days</div><div style={{ ...s.costVal, color: getTotalDays(v) > 5 ? '#ef4444' : '#22c55e' }}>{getTotalDays(v)}</div></div>
+        <div style={{ padding: '12px 18px', background: 'rgba(15,23,42,0.5)', display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10, textAlign: 'center', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+          <div><div style={s.costLabel}>Stock Age</div><div style={{ ...s.costVal, color: getTotalDays(v) > 5 ? '#ef4444' : '#22c55e' }}>{getTotalDays(v)}d</div></div>
+          <div><div style={s.costLabel}>In Recon</div><div style={{ ...s.costVal, color: v.recon_started_at ? (getReconDays(v) > 5 ? '#ef4444' : '#22c55e') : '#64748b' }}>{v.recon_started_at ? `${getReconDays(v)}d` : '—'}</div></div>
           <div><div style={s.costLabel}>Estimate</div><div style={s.costVal}>{formatMoney(v.estimated_cost)}</div></div>
           <div><div style={s.costLabel}>Spent</div><div style={{ ...s.costVal, color: billsTotal > v.estimated_cost ? '#f59e0b' : '#22c55e' }}>{formatMoney(billsTotal || v.actual_cost)}</div></div>
           <div><div style={s.costLabel}>Holding</div><div style={{ ...s.costVal, color: '#ef4444' }}>{formatMoney(getHoldingCost(v))}</div></div>

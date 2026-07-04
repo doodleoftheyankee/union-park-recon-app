@@ -3,11 +3,12 @@
 import { useState } from 'react'
 import { s } from './styles'
 import { STAGES, PRIORITY_FLAGS } from '@/lib/constants'
-import { getTotalDays, getCurrentStageDays, isStageOverdue, formatMoney } from '@/lib/utils'
+import { getTotalDays, getCurrentStageDays, isStageOverdue, getStageStatus, getReconDays, formatMoney } from '@/lib/utils'
 
 // Pipeline board with HTML5 drag-and-drop between columns.
 // canMoveTo(stageId) -> boolean lets the parent gate drops by role.
-export default function PipelineView({ vehicles, stageHistory, onOpen, onDropMove, canMoveTo }) {
+// stageSettings is the per-stage aging config keyed by stage id.
+export default function PipelineView({ vehicles, stageHistory, stageSettings, onOpen, onDropMove, canMoveTo }) {
   const [draggingId, setDraggingId] = useState(null)
   const [dragOverStage, setDragOverStage] = useState(null)
 
@@ -46,7 +47,7 @@ export default function PipelineView({ vehicles, stageHistory, onOpen, onDropMov
           </div>
           <div style={s.priorityList}>
             {priorityVehicles.map((v) => (
-              <div key={v.id} style={s.vCard(v.priority, isStageOverdue(stageHistory[v.id], v.stage))} onClick={() => onOpen(v)}>
+              <div key={v.id} style={s.vCardStatus(v.priority, getStageStatus(stageHistory[v.id], v.stage, stageSettings))} onClick={() => onOpen(v)}>
                 <div style={s.priBadge(v.priority)}>{PRIORITY_FLAGS[v.priority].label}</div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
                   <div>
@@ -55,11 +56,13 @@ export default function PipelineView({ vehicles, stageHistory, onOpen, onDropMov
                   </div>
                   <span style={s.gradeBadge(v.grade)}>{v.grade}</span>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 5 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 5, gap: 4 }}>
                   <span style={{ fontSize: 10, color: '#94a3b8' }}>
                     {STAGES.find((x) => x.id === v.stage)?.icon} {STAGES.find((x) => x.id === v.stage)?.name}
                   </span>
-                  <span style={s.daysInd(getTotalDays(v), 5)}>{getTotalDays(v)}d</span>
+                  <span style={{ fontSize: 10, color: '#94a3b8' }}>
+                    {v.recon_started_at ? `Recon ${getReconDays(v)}d · ` : ''}Stock {getTotalDays(v)}d
+                  </span>
                 </div>
               </div>
             ))}
@@ -112,13 +115,36 @@ export default function PipelineView({ vehicles, stageHistory, onOpen, onDropMov
                 <div style={s.stageName}>{st.icon} {st.name}</div>
                 <div style={s.stageCount(color)}>{list.length}</div>
               </div>
+              {list.length > 0 && (() => {
+                // Top 3 oldest in this stage — surfaces bottlenecks even when
+                // the column is long enough that the worst offenders are
+                // buried below the fold.
+                const top = [...list]
+                  .sort((a, b) => getCurrentStageDays(stageHistory[b.id], b.stage) - getCurrentStageDays(stageHistory[a.id], a.stage))
+                  .slice(0, 3)
+                return (
+                  <div style={s.bottleneckStrip}>
+                    <div style={s.bottleneckHead}>🕒 Oldest in stage</div>
+                    {top.map((v) => {
+                      const d = getCurrentStageDays(stageHistory[v.id], v.stage)
+                      const status = getStageStatus(stageHistory[v.id], v.stage, stageSettings)
+                      return (
+                        <div key={v.id} style={s.bottleneckRow(status)} onClick={() => onOpen(v)}>
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>#{v.stock_number} {v.year} {v.make}</span>
+                          <span style={{ fontWeight: 700, flexShrink: 0 }}>{d}d</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )
+              })()}
               <div style={s.vList}>
                 {list.length === 0 ? (
                   <div style={{ padding: 12, textAlign: 'center', color: '#64748b', fontSize: 10 }}>
                     {isDraggingOver && canDropHere ? 'Drop here' : 'Empty'}
                   </div>
                 ) : list.map((v) => {
-                  const od = isStageOverdue(stageHistory[v.id], v.stage)
+                  const status = getStageStatus(stageHistory[v.id], v.stage, stageSettings)
                   return (
                     <div
                       key={v.id}
@@ -127,7 +153,7 @@ export default function PipelineView({ vehicles, stageHistory, onOpen, onDropMov
                       onDragEnd={endDrag}
                       onClick={() => onOpen(v)}
                       style={{
-                        ...s.vCard(v.priority, od),
+                        ...s.vCardStatus(v.priority, status),
                         cursor: 'grab',
                         opacity: draggingId === v.id ? 0.4 : 1,
                         boxShadow: draggingId === v.id ? '0 8px 20px rgba(0,0,0,0.4)' : 'none',
@@ -141,11 +167,13 @@ export default function PipelineView({ vehicles, stageHistory, onOpen, onDropMov
                         </div>
                         <span style={s.gradeBadge(v.grade)}>{v.grade}</span>
                       </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4 }}>
                         <span style={s.daysInd(getCurrentStageDays(stageHistory[v.id], v.stage), st.maxDays)}>
-                          {getCurrentStageDays(stageHistory[v.id], v.stage)}d
+                          {getCurrentStageDays(stageHistory[v.id], v.stage)}d in stage
                         </span>
-                        <span style={{ fontSize: 9, color: '#64748b' }}>{formatMoney(v.estimated_cost)}</span>
+                        <span style={{ fontSize: 9, color: '#64748b', textAlign: 'right' }}>
+                          {v.recon_started_at ? `Recon ${getReconDays(v)}d · ` : ''}Stock {getTotalDays(v)}d
+                        </span>
                       </div>
                     </div>
                   )

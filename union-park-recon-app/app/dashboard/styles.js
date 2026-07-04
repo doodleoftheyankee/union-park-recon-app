@@ -28,6 +28,15 @@ export const s = {
   stageCount: (color) => ({ background: color, padding: '2px 8px', borderRadius: '10px', fontSize: '11px', fontWeight: '700' }),
   vList: { padding: '8px', display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '260px', overflowY: 'auto' },
   vCard: (priority, overdue) => ({ background: overdue ? 'rgba(239,68,68,0.1)' : 'rgba(15,23,42,0.6)', borderRadius: '6px', padding: '10px', cursor: 'pointer', border: `1px solid ${overdue ? '#ef4444' : priority && priority !== 'none' ? PRIORITY_FLAGS[priority]?.color : 'rgba(255,255,255,0.05)'}`, position: 'relative' }),
+  // Same as vCard but coloured by per-stage aging status
+  // ('green' | 'yellow' | 'red'). Priority still wins the border colour when
+  // there is one so SOLD/HOT cards stay obvious.
+  vCardStatus: (priority, status) => {
+    const c = status === 'red' ? '#ef4444' : status === 'yellow' ? '#f59e0b' : '#22c55e'
+    const bg = status === 'red' ? 'rgba(239,68,68,0.12)' : status === 'yellow' ? 'rgba(245,158,11,0.10)' : 'rgba(15,23,42,0.6)'
+    const border = priority && priority !== 'none' ? PRIORITY_FLAGS[priority]?.color : c
+    return { background: bg, borderRadius: '6px', padding: '10px', cursor: 'pointer', border: `1px solid ${border}`, borderLeft: `3px solid ${c}`, position: 'relative' }
+  },
   priBadge: (p) => ({ position: 'absolute', top: '-4px', right: '-4px', background: PRIORITY_FLAGS[p]?.color, padding: '2px 5px', borderRadius: '3px', fontSize: '8px', fontWeight: '700' }),
   vTitle: { fontSize: '12px', fontWeight: '600', marginBottom: '2px' },
   vStock: { fontSize: '9px', color: '#64748b' },
@@ -79,6 +88,18 @@ export const s = {
   prioritySection: { background: 'rgba(30,41,59,0.8)', borderRadius: '10px', border: '2px solid #f59e0b', marginBottom: '16px', overflow: 'hidden' },
   priorityHeader: { background: 'rgba(245,158,11,0.1)', padding: '10px 14px', display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid rgba(245,158,11,0.3)', fontWeight: '600', fontSize: '13px' },
   priorityList: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '8px', padding: '10px' },
+
+  // Shop workload strip: two chips (GMC, Honda) with in-service counts.
+  shopStrip: { display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' },
+  shopChip: (accent) => ({ background: 'rgba(30,41,59,0.9)', border: `1px solid ${accent}44`, borderLeft: `3px solid ${accent}`, borderRadius: 8, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10, minWidth: 160 }),
+  shopChipLabel: { fontSize: 10, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5 },
+  shopChipVal: { fontSize: 22, fontWeight: 700 },
+  shopChipSub: { fontSize: 10, color: '#64748b', marginTop: 2 },
+
+  // Bottleneck strip inside each pipeline column: top-3 oldest.
+  bottleneckStrip: { padding: '6px 8px 8px', borderBottom: '1px dashed rgba(255,255,255,0.08)', background: 'rgba(15,23,42,0.4)' },
+  bottleneckHead: { fontSize: 9, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 },
+  bottleneckRow: (status) => ({ display: 'flex', justifyContent: 'space-between', gap: 6, fontSize: 10, padding: '2px 4px', borderRadius: 3, color: status === 'red' ? '#fca5a5' : status === 'yellow' ? '#fcd34d' : '#a7f3d0' }),
 
   // Inventory table
   inventoryCtrl: { display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14, alignItems: 'center' },

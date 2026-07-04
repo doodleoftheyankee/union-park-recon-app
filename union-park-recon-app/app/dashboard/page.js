@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
 import { STAGES, PRIORITY_FLAGS, ROLES, AUDITED_FIELDS } from '@/lib/constants'
 import {
-  getTotalDays, isStageOverdue, downloadFile, formatMoney,
+  getTotalDays, isStageOverdue, getStageStatus, getReconDays, downloadFile, formatMoney,
 } from '@/lib/utils'
 import { exportCsv } from '@/lib/inventory'
 
@@ -16,6 +16,7 @@ import AddModal from './AddModal'
 import EditModal from './EditModal'
 import DetailModal from './DetailModal'
 import ImportModal from './ImportModal'
+import StageSettingsModal from './StageSettingsModal'
 
 const TABS = [
   { id: 'pipeline', label: '📊 Pipeline' },
@@ -40,7 +41,16 @@ export default function DashboardPage() {
   const [showAddModal, setShowAddModal] = useState(false)
   const [showImportModal, setShowImportModal] = useState(false)
   const [showAlerts, setShowAlerts] = useState(false)
+  const [showStageSettings, setShowStageSettings] = useState(false)
   const [notifications, setNotifications] = useState([])
+  // Per-stage aging thresholds, keyed by stage id. Sensible fallback in case
+  // the row is missing so the first render doesn't crash before load.
+  const [stageSettings, setStageSettings] = useState({
+    stock_in:   { yellow_at_days: 1, red_at_days: 2 },
+    in_service: { yellow_at_days: 2, red_at_days: 3 },
+    detail:     { yellow_at_days: 2, red_at_days: 3 },
+    frontline:  { yellow_at_days: 15, red_at_days: 30 },
+  })
 
   useEffect(() => {
     const loadData = async () => {
@@ -57,14 +67,21 @@ export default function DashboardPage() {
         { data: notesData },
         { data: historyData },
         { data: billsData },
+        { data: settingsData },
       ] = await Promise.all([
         supabase.from('vehicles').select('*').order('created_at', { ascending: false }),
         supabase.from('notes').select('*').order('created_at', { ascending: false }),
         supabase.from('stage_history').select('*').order('entered_at', { ascending: true }),
         supabase.from('shop_bills').select('*').order('billed_on', { ascending: false }),
+        supabase.from('stage_settings').select('*'),
       ])
 
       setVehicles(vehiclesData || [])
+      if (settingsData?.length) {
+        const bystage = {}
+        for (const r of settingsData) bystage[r.stage_id] = r
+        setStageSettings((prev) => ({ ...prev, ...bystage }))
+      }
 
       const notesByVehicle = {}
       notesData?.forEach((n) => {
@@ -190,6 +207,11 @@ export default function DashboardPage() {
     })
     const patch = { stage: newStage, updated_at: new Date().toISOString() }
     if (newStage === 'frontline') patch.frontline_at = new Date().toISOString()
+    // First move into in_service stamps the recon clock. Once set we never
+    // reset it — subsequent bounces back to in_service are still "in recon".
+    if (newStage === 'in_service' && !vehicle.recon_started_at) {
+      patch.recon_started_at = new Date().toISOString()
+    }
     await supabase.from('vehicles').update(patch).eq('id', vehicleId)
     const stageName = STAGES.find((st) => st.id === newStage)?.name
     await addNote(vehicleId, `Moved to ${stageName}${noteText ? ': ' + noteText : ''}`, 'movement')
@@ -472,11 +494,21 @@ export default function DashboardPage() {
     router.push('/login')
   }
 
-  // Aging alerts list (for header dropdown)
+  // Aging alerts list (for header dropdown). Uses per-stage red thresholds
+  // from stage_settings — a car only shows here if it's past its own stage's
+  // red_at_days, not because of any single hardcoded number.
   const agingAlerts = vehicles
     .filter((v) => v.stage !== 'frontline' && !v.is_rejected)
-    .filter((v) => isStageOverdue(stageHistory[v.id], v.stage) || getTotalDays(v) > 5)
+    .filter((v) => getStageStatus(stageHistory[v.id], v.stage, stageSettings) === 'red')
     .sort((a, b) => getTotalDays(b) - getTotalDays(a))
+
+  // Shop workload: how many cars are actively at each service shop right now.
+  // Shows next to the header so it's visible without changing tabs.
+  const shopWorkload = {
+    gmc: vehicles.filter((v) => v.stage === 'in_service' && v.service_location === 'gmc' && !v.is_rejected).length,
+    honda: vehicles.filter((v) => v.stage === 'in_service' && v.service_location === 'honda' && !v.is_rejected).length,
+    unassigned: vehicles.filter((v) => v.stage === 'in_service' && !v.service_location && !v.is_rejected).length,
+  }
 
   const getStageCount = (stageId) => vehicles.filter((v) => v.stage === stageId && !v.is_rejected).length
 
@@ -533,6 +565,7 @@ export default function DashboardPage() {
           </div>
           {permissions.canImport && <button style={s.btn('import')} onClick={() => setShowImportModal(true)}>📥 Daily Import</button>}
           {permissions.canAddVehicles && <button style={s.btn('add')} onClick={() => setShowAddModal(true)}>+ Add Car</button>}
+          {profile?.role === 'admin' && <button style={s.btn()} onClick={() => setShowStageSettings(true)} title="Edit stage aging thresholds">⚙️ Thresholds</button>}
           <a href="/board" target="_blank" rel="noopener noreferrer" style={{ ...s.btn(), textDecoration: 'none' }}>📺 TV</a>
           <a href="/sales" target="_blank" rel="noopener noreferrer" style={{ ...s.btn(), textDecoration: 'none' }}>🚗 Sales</a>
           <button style={s.btn()} onClick={handleLogout}>Logout</button>
@@ -553,9 +586,40 @@ export default function DashboardPage() {
               <div style={s.stat(false)}><div style={s.statLabel}>Frontline</div><div style={{ ...s.statVal, color: '#22c55e' }}>{vehicles.filter((v) => v.stage === 'frontline').length}</div></div>
               <div style={s.stat(agingAlerts.length > 0)}><div style={s.statLabel}>Overdue</div><div style={{ ...s.statVal, color: agingAlerts.length > 0 ? '#ef4444' : '#22c55e' }}>{agingAlerts.length}</div></div>
             </div>
+
+            <div style={s.shopStrip}>
+              <div style={s.shopChip('#6366f1')}>
+                <span style={{ fontSize: 20 }}>🛠️</span>
+                <div>
+                  <div style={s.shopChipLabel}>GMC Service</div>
+                  <div style={s.shopChipVal}>{shopWorkload.gmc}</div>
+                  <div style={s.shopChipSub}>in service now</div>
+                </div>
+              </div>
+              <div style={s.shopChip('#ef4444')}>
+                <span style={{ fontSize: 20 }}>🛠️</span>
+                <div>
+                  <div style={s.shopChipLabel}>Honda Service</div>
+                  <div style={s.shopChipVal}>{shopWorkload.honda}</div>
+                  <div style={s.shopChipSub}>in service now</div>
+                </div>
+              </div>
+              {shopWorkload.unassigned > 0 && (
+                <div style={s.shopChip('#f59e0b')}>
+                  <span style={{ fontSize: 20 }}>⚠️</span>
+                  <div>
+                    <div style={s.shopChipLabel}>Unassigned</div>
+                    <div style={s.shopChipVal}>{shopWorkload.unassigned}</div>
+                    <div style={s.shopChipSub}>no shop set</div>
+                  </div>
+                </div>
+              )}
+            </div>
+
             <PipelineView
               vehicles={vehicles}
               stageHistory={stageHistory}
+              stageSettings={stageSettings}
               onOpen={openVehicle}
               onDropMove={(id, stage) => moveVehicle(id, stage)}
               canMoveTo={(stage) => permissions.canMoveAnyStage || permissions.allowedStages?.includes(stage)}
@@ -579,6 +643,28 @@ export default function DashboardPage() {
       {showAddModal && <AddModal onClose={() => setShowAddModal(false)} onAdd={addVehicle} />}
       {showImportModal && permissions.canImport && (
         <ImportModal onClose={() => setShowImportModal(false)} onImport={importVehicles} />
+      )}
+      {showStageSettings && profile?.role === 'admin' && (
+        <StageSettingsModal
+          settings={stageSettings}
+          onClose={() => setShowStageSettings(false)}
+          onSave={async (rows) => {
+            for (const r of rows) {
+              await supabase.from('stage_settings').upsert({
+                stage_id: r.stage_id,
+                yellow_at_days: r.yellow_at_days,
+                red_at_days: r.red_at_days,
+                updated_at: new Date().toISOString(),
+                updated_by_id: user.id,
+                updated_by_name: profile.full_name,
+              }, { onConflict: 'stage_id' })
+            }
+            const bystage = {}
+            for (const r of rows) bystage[r.stage_id] = r
+            setStageSettings((prev) => ({ ...prev, ...bystage }))
+            notify('Thresholds saved', 'success')
+          }}
+        />
       )}
       {liveSelected && !editingVehicle && (
         <DetailModal

@@ -36,6 +36,33 @@ export function isStageOverdue(stageHistory, currentStage) {
   return getCurrentStageDays(stageHistory, currentStage) > stage.maxDays
 }
 
+// Per-stage aging status: 'green' | 'yellow' | 'red'.
+// stageSettings is a map keyed by stage id: { yellow_at_days, red_at_days }.
+// Falls back to the hardcoded STAGES.maxDays if no settings row is loaded yet
+// so the UI never crashes on cold start.
+export function getStageStatus(stageHistory, currentStage, stageSettings) {
+  const d = getCurrentStageDays(stageHistory, currentStage)
+  const cfg = (stageSettings && stageSettings[currentStage]) || null
+  const yellow = cfg ? Number(cfg.yellow_at_days) : null
+  const red = cfg ? Number(cfg.red_at_days) : null
+  if (red != null && d > red) return 'red'
+  if (yellow != null && d > yellow) return 'yellow'
+  if (red == null && yellow == null) {
+    // Legacy fallback while settings load
+    const stage = STAGES.find(s => s.id === currentStage)
+    if (stage?.maxDays && d > stage.maxDays) return 'red'
+  }
+  return 'green'
+}
+
+// Days spent in recon: measured from recon_started_at, which stamps on the
+// first stock_in -> in_service transition. Cars still in stock_in return 0
+// because recon hasn't started yet.
+export function getReconDays(vehicle) {
+  if (!vehicle?.recon_started_at) return 0
+  return getDaysBetween(vehicle.recon_started_at)
+}
+
 // Calculate holding cost based on days since stock-in
 export function getHoldingCost(source) {
   return Math.round(getTotalDays(source) * HOLDING_COST_PER_DAY)
