@@ -54,13 +54,18 @@ export default function DashboardPage() {
 
   useEffect(() => {
     const loadData = async () => {
+      // Public read: /dashboard renders for anyone at the dealership without
+      // requiring a login. Signed-in users with admin or recon_manager get
+      // edit controls; everyone else (including guests with no session) sees
+      // the same board read-only. RLS at the DB level enforces the same rule
+      // so no rogue client can flip a boolean and start writing.
       const { data: { session } } = await supabase.auth.getSession()
-      if (!session) { router.push('/login'); return }
-      setUser(session.user)
-
-      const { data: profileData } = await supabase
-        .from('profiles').select('*').eq('id', session.user.id).single()
-      setProfile(profileData)
+      if (session) {
+        setUser(session.user)
+        const { data: profileData } = await supabase
+          .from('profiles').select('*').eq('id', session.user.id).single()
+        setProfile(profileData)
+      }
 
       const [
         { data: vehiclesData },
@@ -177,7 +182,12 @@ export default function DashboardPage() {
     setTimeout(() => setNotifications((prev) => prev.filter((n) => n.id !== id)), 4000)
   }
 
-  const permissions = profile ? ROLES[profile.role] || ROLES.service : ROLES.service
+  // Only admins and the recon manager get edit controls. Everyone else
+  // (guest with no session, service techs, detail techs) gets the guest
+  // permission set — pipeline visible, nothing editable. Match this with the
+  // is_editor() RLS check on the database side.
+  const isEditor = !!(profile && (profile.role === 'admin' || profile.role === 'recon_manager'))
+  const permissions = isEditor ? (ROLES[profile.role] || ROLES.guest) : ROLES.guest
 
   // ---------------------------------------------------------------------------
   // Mutations
@@ -538,7 +548,16 @@ export default function DashboardPage() {
           <div style={s.logoSub}>Buick GMC • Recon Tracker</div>
         </div>
         <div style={s.headerRight}>
-          <span style={s.userInfo}>{profile?.full_name} <span style={{ fontSize: 10, opacity: 0.7 }}>({profile?.role})</span></span>
+          {profile ? (
+            <span style={s.userInfo}>
+              {profile.full_name} <span style={{ fontSize: 10, opacity: 0.7 }}>({profile.role})</span>
+              {!isEditor && <span style={{ marginLeft: 8, fontSize: 10, padding: '2px 6px', border: '1px solid rgba(255,255,255,0.35)', borderRadius: 3 }}>read-only</span>}
+            </span>
+          ) : (
+            <span style={s.userInfo}>
+              <span style={{ fontSize: 11, padding: '3px 8px', border: '1px solid rgba(255,255,255,0.4)', borderRadius: 3 }}>👁 Viewing as guest</span>
+            </span>
+          )}
           <div style={{ position: 'relative' }}>
             <button style={s.btn('alert', agingAlerts.length)} onClick={() => setShowAlerts(!showAlerts)}>
               ⚠️ Alerts {agingAlerts.length > 0 && `(${agingAlerts.length})`}
@@ -568,7 +587,11 @@ export default function DashboardPage() {
           {profile?.role === 'admin' && <button style={s.btn()} onClick={() => setShowStageSettings(true)} title="Edit stage aging thresholds">⚙️ Thresholds</button>}
           <a href="/board" target="_blank" rel="noopener noreferrer" style={{ ...s.btn(), textDecoration: 'none' }}>📺 TV</a>
           <a href="/sales" target="_blank" rel="noopener noreferrer" style={{ ...s.btn(), textDecoration: 'none' }}>🚗 Sales</a>
-          <button style={s.btn()} onClick={handleLogout}>Logout</button>
+          {profile ? (
+            <button style={s.btn()} onClick={handleLogout}>Logout</button>
+          ) : (
+            <a href="/login" style={{ ...s.btn(), textDecoration: 'none' }}>🔐 Sign in to edit</a>
+          )}
         </div>
       </header>
 
