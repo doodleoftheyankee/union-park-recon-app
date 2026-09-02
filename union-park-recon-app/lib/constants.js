@@ -1,5 +1,17 @@
 // User roles and permissions
 export const ROLES = {
+  // Anonymous visitor — no session, no edit rights. Matches the public-read
+  // access model: /dashboard is browseable by anyone at the dealership,
+  // edits require an admin or recon_manager to sign in.
+  guest: {
+    canAddVehicles: false,
+    canApprove: false,
+    canMoveAnyStage: false,
+    canEditAnyField: false,
+    canImport: false,
+    canReject: false,
+    canSeeFullPipeline: true,
+  },
   admin: {
     canAddVehicles: true,
     canApprove: true,
